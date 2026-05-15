@@ -13,6 +13,7 @@ core powers with fewer moving pieces.
 - JSONL memory
 - Markdown skills
 - budget guard
+- Telegram long-polling channel
 - unit tests
 
 ## Milestone 1: Better Local Agent Experience
@@ -28,13 +29,14 @@ core powers with fewer moving pieces.
 ## Milestone 2: Lightweight Gateway
 
 - local HTTP gateway bound to `127.0.0.1`
-- webhook receiver for selected integrations
+- webhook receiver for selected integrations; Telegram starts with long polling
 - scheduler for reminders and recurring jobs
 - background task queue using SQLite
 - progress notifications without a heavy daemon stack
 
 ## Milestone 3: Practical Integrations
 
+- Telegram command polish and attachment handling
 - email draft mode
 - calendar read and propose mode
 - GitHub issues and pull request summaries
@@ -61,4 +63,3 @@ Butterclaw should feel competitive when it can:
 - run well on 4 GB to 8 GB RAM machines
 - keep risky actions behind human-controlled permissions
 - support cheap cloud APIs and small local models equally well
-

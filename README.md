@@ -22,6 +22,7 @@ to misconfigure. Butterclaw starts from the opposite end:
 
 - CLI agent loop with a simple JSON tool-call protocol
 - provider adapters for `mock`, `ollama`, and OpenAI-compatible chat APIs
+- Telegram long-polling channel for phone/chat access
 - local file tools: list, read, write, and search inside a workspace
 - optional shell tool with timeout and workspace guard
 - JSONL local memory with simple relevance search
@@ -57,6 +58,18 @@ Enable shell commands only when you actually need them:
 python -m butterclaw --allow-shell "run the tests and tell me what failed"
 ```
 
+Run from Telegram:
+
+```powershell
+$env:TELEGRAM_BOT_TOKEN = "123456:your-token"
+python -m butterclaw --telegram-poll --provider ollama --model llama3.2:3b --telegram-allowed-chat 123456789
+```
+
+The Telegram channel uses long polling, stores its update offset locally, and
+responds to `/start`, `/help`, `/tools`, `/budget`, and normal task messages.
+Set `--telegram-allowed-chat` to avoid exposing the bot to unexpected chats.
+See [docs/TELEGRAM.md](docs/TELEGRAM.md) for setup notes.
+
 ## Configuration
 
 Create a starter config:
@@ -67,6 +80,7 @@ python -m butterclaw --init-config
 
 Config defaults to `%APPDATA%\butterclaw\config.json` on Windows and
 `~/.config/butterclaw/config.json` elsewhere. CLI flags override config values.
+Telegram tokens are read from `TELEGRAM_BOT_TOKEN` by default.
 
 ## Tool Call Protocol
 

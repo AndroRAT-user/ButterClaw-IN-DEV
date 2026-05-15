@@ -26,7 +26,7 @@ channels and the chosen AI model, with local session state and tool execution:
 | Memory | Persistent context | Started: JSONL local memory with relevance search |
 | Tools | Files, shell, APIs, browser, apps | Started: workspace files and opt-in shell |
 | Permissions | Fine-grained access control | Started: workspace guard and shell deny-by-default |
-| Channels | WhatsApp, Discord, Telegram, Slack, etc. | Planned: lightweight gateway adapters |
+| Channels | WhatsApp, Discord, Telegram, Slack, etc. | Started: Telegram long polling |
 | Scheduling | Reminders, heartbeats, background tasks | Planned: SQLite task queue and scheduler |
 | Browser/app control | Operate real user workflows | Planned: opt-in adapters with explicit permissions |
 | Multi-agent | Delegate and coordinate roles | Planned after sessions and scheduler |
@@ -39,4 +39,3 @@ channels and the chosen AI model, with local session state and tool execution:
 - Prefer plain files and SQLite over servers.
 - Deny risky tools by default.
 - Make cheap/local providers first-class, not fallback paths.
-

@@ -8,6 +8,11 @@
   "daily_budget_usd": 0.25,
   "shell_mode": "deny",
   "allow_outside_workspace": false,
-  "cheap_mode": true
+  "cheap_mode": true,
+  "telegram_token_env": "TELEGRAM_BOT_TOKEN",
+  "telegram_base_url": "https://api.telegram.org",
+  "telegram_allowed_chats": [],
+  "telegram_poll_timeout_seconds": 25,
+  "telegram_idle_sleep_seconds": 1.0,
+  "telegram_max_reply_chars": 3900
 }
-

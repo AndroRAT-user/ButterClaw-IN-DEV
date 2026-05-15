@@ -8,6 +8,7 @@ from pathlib import Path
 from butterclaw import __version__
 from butterclaw.agent import ButterclawAgent
 from butterclaw.budget import BudgetLimitExceeded
+from butterclaw.channels.telegram import TelegramChannel, TelegramError
 from butterclaw.config import ButterclawConfig, config_path, load_config, save_config
 from butterclaw.tools import build_default_registry
 
@@ -32,6 +33,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.show_tools:
         print(build_default_registry(config).describe())
         return 0
+
+    if args.telegram_poll:
+        return run_telegram(config, once=args.telegram_once)
 
     task = " ".join(args.task).strip()
     if not task:
@@ -60,6 +64,18 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--budget-usd", type=float)
     parser.add_argument("--allow-shell", action="store_true", help="Enable shell tool.")
     parser.add_argument("--allow-outside-workspace", action="store_true")
+    parser.add_argument("--telegram-poll", action="store_true", help="Run the Telegram long-polling channel.")
+    parser.add_argument("--telegram-once", action="store_true", help="Poll Telegram once and exit.")
+    parser.add_argument("--telegram-token-env", help="Environment variable containing the Telegram bot token.")
+    parser.add_argument("--telegram-base-url", help="Telegram Bot API base URL.")
+    parser.add_argument(
+        "--telegram-allowed-chat",
+        action="append",
+        default=[],
+        help="Allowed Telegram chat ID. Can be repeated or comma-separated.",
+    )
+    parser.add_argument("--telegram-timeout", type=int, help="Long-poll timeout in seconds.")
+    parser.add_argument("--telegram-idle-sleep", type=float, help="Sleep between empty polls in seconds.")
     return parser.parse_args(argv)
 
 
@@ -84,6 +100,24 @@ def apply_overrides(config: ButterclawConfig, args: argparse.Namespace) -> None:
         config.shell_mode = "allow"
     if args.allow_outside_workspace:
         config.allow_outside_workspace = True
+    if args.telegram_token_env:
+        config.telegram_token_env = args.telegram_token_env
+    if args.telegram_base_url:
+        config.telegram_base_url = args.telegram_base_url
+    allowed_chats = expand_csv(args.telegram_allowed_chat)
+    if allowed_chats:
+        config.telegram_allowed_chats = allowed_chats
+    if args.telegram_timeout is not None:
+        config.telegram_poll_timeout_seconds = args.telegram_timeout
+    if args.telegram_idle_sleep is not None:
+        config.telegram_idle_sleep_seconds = args.telegram_idle_sleep
+
+
+def expand_csv(values: list[str]) -> list[str]:
+    expanded: list[str] = []
+    for value in values:
+        expanded.extend(part.strip() for part in value.split(",") if part.strip())
+    return expanded
 
 
 def run_once(config: ButterclawConfig, task: str) -> int:
@@ -100,6 +134,22 @@ def run_once(config: ButterclawConfig, task: str) -> int:
     if result.spent_usd:
         print(f"\nSpent this run: ${result.spent_usd:.5f}")
     return 0
+
+
+def run_telegram(config: ButterclawConfig, once: bool = False) -> int:
+    try:
+        channel = TelegramChannel(config)
+        agent = ButterclawAgent(config)
+        channel.run_forever(agent, once=once)
+    except KeyboardInterrupt:
+        print()
+        return 0
+    except TelegramError as exc:
+        print(f"Telegram failed: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"Butterclaw Telegram channel failed: {exc}", file=sys.stderr)
+        return 1
 
 
 def repl(config: ButterclawConfig) -> int:
@@ -125,4 +175,3 @@ def repl(config: ButterclawConfig) -> int:
 
 def _json_dump(data: object) -> str:
     return json.dumps(data, indent=2, sort_keys=True)
-
