@@ -22,8 +22,10 @@ test("cli parser reads flags and task text", () => {
     "--allow-shell",
     "--telegram-allowed-chat",
     "123,456",
-    "--google-token-env",
-    "GOOGLE_TOKEN",
+    "--google-client-id-env",
+    "GOOGLE_CLIENT",
+    "--google-client-secret-env",
+    "GOOGLE_SECRET",
     "--google-calendar-id",
     "primary",
     "list",
@@ -33,7 +35,8 @@ test("cli parser reads flags and task text", () => {
   assert.equal(args.agent, "debugger");
   assert.equal(args.allowShell, true);
   assert.deepEqual(args.telegramAllowedChat, ["123", "456"]);
-  assert.equal(args.googleTokenEnv, "GOOGLE_TOKEN");
+  assert.equal(args.googleClientIdEnv, "GOOGLE_CLIENT");
+  assert.equal(args.googleClientSecretEnv, "GOOGLE_SECRET");
   assert.equal(args.googleCalendarId, "primary");
   assert.deepEqual(args.task, ["list", "files"]);
 });

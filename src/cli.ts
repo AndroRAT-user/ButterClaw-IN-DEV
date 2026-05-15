@@ -5,6 +5,7 @@ import { ButterclawAgent } from "./agent.js";
 import { AgentProfile, AgentStore, applyAgentProfile } from "./agents.js";
 import { TelegramChannel, TelegramError } from "./channels/telegram.js";
 import { ButterclawConfig, configPath, loadConfig, saveConfig } from "./config.js";
+import { GOOGLE_WORKSPACE_SCOPES, googleStatus, loginGoogle, logoutGoogle } from "./google.js";
 import { runSetup } from "./setup.js";
 import { SkillLoader } from "./skills.js";
 import { splitCsv } from "./util.js";
@@ -34,7 +35,8 @@ interface Args {
   telegramAllowedChat: string[];
   telegramTimeout?: number;
   telegramIdleSleep?: number;
-  googleTokenEnv?: string;
+  googleClientIdEnv?: string;
+  googleClientSecretEnv?: string;
   googleCalendarId?: string;
 }
 
@@ -56,6 +58,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   if (command === "skill" || command === "skills") {
     return handleCommand(() => runSkillCommand(config, args.task.slice(1)));
+  }
+  if (command === "google") {
+    return handleAsyncCommand(() => runGoogleCommand(config, args.task.slice(1)));
   }
   const agentProfile = args.agent ? new AgentStore(config.agentsDir).get(args.agent) : null;
   if (args.agent && !agentProfile) {
@@ -120,7 +125,8 @@ export function parseArgs(argv: string[]): Args {
     "--telegram-allowed-chat": (value) => args.telegramAllowedChat.push(...splitCsv(value)),
     "--telegram-timeout": (value) => (args.telegramTimeout = Number(value)),
     "--telegram-idle-sleep": (value) => (args.telegramIdleSleep = Number(value)),
-    "--google-token-env": (value) => (args.googleTokenEnv = value),
+    "--google-client-id-env": (value) => (args.googleClientIdEnv = value),
+    "--google-client-secret-env": (value) => (args.googleClientSecretEnv = value),
     "--google-calendar-id": (value) => (args.googleCalendarId = value)
   };
   const flagOptions: Record<string, () => void> = {
@@ -171,7 +177,8 @@ function applyOverrides(config: ButterclawConfig, args: Args): void {
   if (args.telegramAllowedChat.length) config.telegramAllowedChats = args.telegramAllowedChat;
   if (args.telegramTimeout !== undefined) config.telegramPollTimeoutSeconds = args.telegramTimeout;
   if (args.telegramIdleSleep !== undefined) config.telegramIdleSleepSeconds = args.telegramIdleSleep;
-  if (args.googleTokenEnv) config.googleTokenEnv = args.googleTokenEnv;
+  if (args.googleClientIdEnv) config.googleClientIdEnv = args.googleClientIdEnv;
+  if (args.googleClientSecretEnv) config.googleClientSecretEnv = args.googleClientSecretEnv;
   if (args.googleCalendarId) config.googleCalendarId = args.googleCalendarId;
 }
 
@@ -279,9 +286,43 @@ export function runSkillCommand(config: ButterclawConfig, argv: string[], output
   throw new Error("Usage: butterclaw skill list | show <name> | create <name> [--description text] [--body text] [--force]");
 }
 
+export async function runGoogleCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): Promise<number> {
+  const command = argv[0]?.toLowerCase() ?? "status";
+  if (command === "status") {
+    outputFunc(googleStatus(config));
+    return 0;
+  }
+  if (command === "logout") {
+    outputFunc(logoutGoogle(config));
+    return 0;
+  }
+  if (command === "login") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const message = await loginGoogle(config, {
+      clientId: parsed.values["client-id"],
+      clientSecret: parsed.values["client-secret"],
+      scopes: parsed.values.scopes ? splitCsv(parsed.values.scopes) : GOOGLE_WORKSPACE_SCOPES,
+      openBrowser: !parsed.flags.has("no-browser"),
+      output: outputFunc
+    });
+    outputFunc(message);
+    return 0;
+  }
+  throw new Error("Usage: butterclaw google login [--client-id id] [--client-secret secret] [--scopes scope1,scope2] | status | logout");
+}
+
 function handleCommand(command: () => number): number {
   try {
     return command();
+  } catch (error) {
+    console.error(`Butterclaw failed: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
+}
+
+async function handleAsyncCommand(command: () => Promise<number>): Promise<number> {
+  try {
+    return await command();
   } catch (error) {
     console.error(`Butterclaw failed: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
@@ -334,12 +375,16 @@ Options:
   --telegram-allowed-chat <id>
   --telegram-timeout <seconds>
   --telegram-idle-sleep <seconds>
-  --google-token-env <name>
+  --google-client-id-env <name>
+  --google-client-secret-env <name>
   --google-calendar-id <id>
 
 Commands:
   butterclaw agent list
   butterclaw agent create <name> --description <text> --instructions <text>
   butterclaw skill list
-  butterclaw skill create <name> --description <text> --body <text>`);
+  butterclaw skill create <name> --description <text> --body <text>
+  butterclaw google login
+  butterclaw google status
+  butterclaw google logout`);
 }

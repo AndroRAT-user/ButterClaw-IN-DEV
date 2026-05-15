@@ -27,8 +27,10 @@ export interface ButterclawConfig {
   telegramPollTimeoutSeconds: number;
   telegramIdleSleepSeconds: number;
   telegramMaxReplyChars: number;
-  googleTokenEnv: string;
+  googleClientIdEnv: string;
+  googleClientSecretEnv: string;
   googleCalendarId: string;
+  googleOAuthPath: string;
   agentsDir: string;
   skillsDir: string;
   memoryPath: string;
@@ -70,8 +72,10 @@ export function defaultConfig(overrides: Partial<ButterclawConfig> = {}): Butter
     telegramPollTimeoutSeconds: 25,
     telegramIdleSleepSeconds: 1,
     telegramMaxReplyChars: 3900,
-    googleTokenEnv: "GOOGLE_ACCESS_TOKEN",
+    googleClientIdEnv: "GOOGLE_CLIENT_ID",
+    googleClientSecretEnv: "GOOGLE_CLIENT_SECRET",
     googleCalendarId: "primary",
+    googleOAuthPath: path.join(configDir, "google-oauth.json"),
     agentsDir: path.join(configDir, "agents"),
     skillsDir: path.join(configDir, "skills"),
     memoryPath: path.join(configDir, "memory.jsonl"),
@@ -90,6 +94,7 @@ export function normalizeConfig(config: ButterclawConfig): ButterclawConfig {
     agentsDir: path.resolve(config.agentsDir || path.join(configDir, "agents")),
     skillsDir: path.resolve(config.skillsDir || path.join(configDir, "skills")),
     memoryPath: path.resolve(config.memoryPath || path.join(configDir, "memory.jsonl")),
+    googleOAuthPath: path.resolve(config.googleOAuthPath || path.join(configDir, "google-oauth.json")),
     telegramStatePath: path.resolve(config.telegramStatePath || path.join(configDir, "telegram-state.json"))
   };
 }

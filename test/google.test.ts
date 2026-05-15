@@ -4,41 +4,52 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { defaultConfig } from "../src/config.js";
+import { buildAuthUrl, googleStatus, logoutGoogle } from "../src/google.js";
 import { buildDefaultRegistry } from "../src/tools.js";
-
-const tokenEnv = "BUTTERCLAW_TEST_GOOGLE_TOKEN";
 
 function tempConfig() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "butterclaw-google-"));
   return defaultConfig({
     workspace: root,
     configDir: path.join(root, ".config"),
-    googleTokenEnv: tokenEnv,
     googleCalendarId: "primary"
   });
 }
 
-test("google tools require an access token", async () => {
-  const previous = process.env[tokenEnv];
-  delete process.env[tokenEnv];
-  try {
-    const result = await buildDefaultRegistry(tempConfig()).call("gmail_search", { query: "from:ana" });
-    assert.equal(result.ok, false);
-    assert.match(result.output, /Missing Google access token/);
-  } finally {
-    if (previous === undefined) delete process.env[tokenEnv];
-    else process.env[tokenEnv] = previous;
-  }
+test("google tools require OAuth login", async () => {
+  const result = await buildDefaultRegistry(tempConfig()).call("gmail_search", { query: "from:ana" });
+  assert.equal(result.ok, false);
+  assert.match(result.output, /Google OAuth is not connected/);
+});
+
+test("google auth url uses offline access and PKCE", () => {
+  const url = new URL(
+    buildAuthUrl({
+      clientId: "client",
+      redirectUri: "http://127.0.0.1:1234/oauth2callback",
+      scopes: ["scope-a", "scope-b"],
+      state: "state",
+      codeChallenge: "challenge"
+    })
+  );
+  assert.equal(url.searchParams.get("access_type"), "offline");
+  assert.equal(url.searchParams.get("prompt"), "consent");
+  assert.equal(url.searchParams.get("code_challenge_method"), "S256");
+  assert.equal(url.searchParams.get("scope"), "scope-a scope-b");
 });
 
 test("gmail tools search, read, and create drafts through Google APIs", async () => {
-  const previousToken = process.env[tokenEnv];
   const previousFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit }> = [];
-  process.env[tokenEnv] = "test-token";
+  const config = tempConfig();
+  seedOAuth(config.googleOAuthPath);
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     requests.push({ url, init });
+    if (url === "https://oauth2.googleapis.com/token") {
+      assert.match(String(init?.body), /grant_type=refresh_token/);
+      return json({ access_token: "fresh-token", expires_in: 3600, token_type: "Bearer" });
+    }
     if (url.includes("/messages?")) {
       return json({ messages: [{ id: "m1" }] });
     }
@@ -55,7 +66,7 @@ test("gmail tools search, read, and create drafts through Google APIs", async ()
   }) as typeof fetch;
 
   try {
-    const registry = buildDefaultRegistry(tempConfig());
+    const registry = buildDefaultRegistry(config);
     const search = await registry.call("gmail_search", { query: "from:ana", maxResults: 1 });
     const read = await registry.call("gmail_read", { id: "m1" });
     const draft = await registry.call("gmail_create_draft", { to: "ana@example.com", subject: "Hello", body: "Draft body" });
@@ -72,19 +83,18 @@ test("gmail tools search, read, and create drafts through Google APIs", async ()
     const raw = String(draftBody.message.raw);
     assert.match(decodeBase64Url(raw), /To: ana@example.com/);
     assert.match(decodeBase64Url(raw), /Draft body/);
-    assert.equal(requests.every((request) => request.init?.headers && String((request.init.headers as Record<string, string>).Authorization).includes("test-token")), true);
+    const apiRequests = requests.filter((request) => !request.url.includes("oauth2.googleapis.com"));
+    assert.equal(apiRequests.every((request) => request.init?.headers && String((request.init.headers as Record<string, string>).Authorization).includes("fresh-token")), true);
   } finally {
     globalThis.fetch = previousFetch;
-    if (previousToken === undefined) delete process.env[tokenEnv];
-    else process.env[tokenEnv] = previousToken;
   }
 });
 
 test("calendar tools list and create events through Google APIs", async () => {
-  const previousToken = process.env[tokenEnv];
   const previousFetch = globalThis.fetch;
   let createdEvent: any;
-  process.env[tokenEnv] = "test-token";
+  const config = tempConfig();
+  seedOAuth(config.googleOAuthPath, "usable-token", new Date(Date.now() + 3_600_000).toISOString());
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     if (url.includes("/calendar/v3/calendars/primary/events?")) {
@@ -100,7 +110,7 @@ test("calendar tools list and create events through Google APIs", async () => {
   }) as typeof fetch;
 
   try {
-    const registry = buildDefaultRegistry(tempConfig());
+    const registry = buildDefaultRegistry(config);
     const list = await registry.call("calendar_list_events", { timeMin: "2026-05-15T00:00:00Z", maxResults: 1 });
     const create = await registry.call("calendar_create_event", {
       summary: "Planning",
@@ -117,9 +127,15 @@ test("calendar tools list and create events through Google APIs", async () => {
     assert.deepEqual(createdEvent.attendees, [{ email: "ana@example.com" }, { email: "ben@example.com" }]);
   } finally {
     globalThis.fetch = previousFetch;
-    if (previousToken === undefined) delete process.env[tokenEnv];
-    else process.env[tokenEnv] = previousToken;
   }
+});
+
+test("google status and logout use local OAuth file", () => {
+  const config = tempConfig();
+  seedOAuth(config.googleOAuthPath);
+  assert.match(googleStatus(config), /Google OAuth connected/);
+  assert.equal(logoutGoogle(config), "Google OAuth credentials removed.");
+  assert.match(googleStatus(config), /not connected/);
 });
 
 function gmailMessage(id: string, snippet: string, body = "") {
@@ -150,4 +166,24 @@ function encodeBase64Url(value: string): string {
 
 function decodeBase64Url(value: string): string {
   return Buffer.from(value.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+}
+
+function seedOAuth(file: string, accessToken = "expired-token", expiresAt = new Date(Date.now() - 1000).toISOString()): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify(
+      {
+        clientId: "client-id",
+        clientSecret: "client-secret",
+        refreshToken: "refresh-token",
+        accessToken,
+        expiresAt,
+        scopes: ["https://www.googleapis.com/auth/gmail.readonly"]
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
 }

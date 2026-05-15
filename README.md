@@ -13,7 +13,7 @@ Telegram channel without requiring a large service stack.
 - first-run setup command
 - provider adapters for `mock`, `ollama`, and OpenAI-compatible chat APIs
 - saved agent profiles with custom instructions
-- Gmail and Google Calendar tools using your Google OAuth token
+- Gmail and Google Calendar tools using Google OAuth
 - Telegram long-polling channel for phone/chat access
 - local file tools: list, read, write, and search inside a workspace
 - optional shell tool with timeout and workspace guard
@@ -99,17 +99,19 @@ See [docs/TELEGRAM.md](docs/TELEGRAM.md).
 ## Google Workspace
 
 Butterclaw can search/read Gmail, create Gmail drafts, list Calendar events,
-and create Calendar events when you provide a Google OAuth access token:
+and create Calendar events after you connect Google OAuth:
 
 ```cmd
-set GOOGLE_ACCESS_TOKEN=your-google-oauth-access-token
+set GOOGLE_CLIENT_ID=your-google-oauth-client-id
+set GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
+butterclaw google login
 butterclaw "search gmail for unread messages from today"
 butterclaw "create a calendar event called Focus Block tomorrow from 10:00 to 11:00"
 ```
 
-Use `--google-token-env` if your token lives in a different environment
-variable, and `--google-calendar-id` to use a calendar other than `primary`.
-See [docs/GOOGLE.md](docs/GOOGLE.md).
+Use `butterclaw google status` to check the connection and
+`butterclaw google logout` to remove the saved OAuth credentials. See
+[docs/GOOGLE.md](docs/GOOGLE.md).
 
 ## Setup
 

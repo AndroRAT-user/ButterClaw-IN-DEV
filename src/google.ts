@@ -1,6 +1,18 @@
+import childProcess from "node:child_process";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import http from "node:http";
 import { ButterclawConfig } from "./config.js";
 import type { ToolResult } from "./tools.js";
-import { isRecord, splitCsv, truncate } from "./util.js";
+import { isRecord, readJsonFile, splitCsv, truncate, writeJsonFile } from "./util.js";
+
+const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const TOKEN_URL = "https://oauth2.googleapis.com/token";
+export const GOOGLE_WORKSPACE_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.compose",
+  "https://www.googleapis.com/auth/calendar.events"
+];
 
 type ToolHandler = (args: Record<string, unknown>) => ToolResult | Promise<ToolResult>;
 
@@ -18,6 +30,36 @@ interface GoogleRequestOptions {
   query?: Record<string, string | number | boolean | undefined>;
   queryList?: Array<[string, string]>;
   body?: unknown;
+}
+
+interface GoogleOAuthState {
+  clientId?: string;
+  clientSecret?: string;
+  scopes?: string[];
+  refreshToken?: string;
+  accessToken?: string;
+  expiresAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface TokenResponse {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  scope?: string;
+  token_type?: string;
+  error?: string;
+  error_description?: string;
+}
+
+export interface GoogleLoginOptions {
+  clientId?: string;
+  clientSecret?: string;
+  scopes?: string[];
+  openBrowser?: boolean;
+  timeoutMs?: number;
+  output?: (line: string) => void;
 }
 
 export function registerGoogleTools(registry: RegistryLike, config: ButterclawConfig): void {
@@ -54,8 +96,148 @@ export function registerGoogleTools(registry: RegistryLike, config: ButterclawCo
   });
 }
 
-class GoogleWorkspaceTools {
+export async function loginGoogle(config: ButterclawConfig, options: GoogleLoginOptions = {}): Promise<string> {
+  const output = options.output ?? console.log;
+  const clientId = options.clientId?.trim() || process.env[config.googleClientIdEnv]?.trim();
+  const clientSecret = options.clientSecret?.trim() || process.env[config.googleClientSecretEnv]?.trim();
+  if (!clientId) {
+    throw new Error(`Missing Google OAuth client ID. Pass --client-id or set ${config.googleClientIdEnv}.`);
+  }
+
+  const verifier = randomBase64Url(64);
+  const state = randomBase64Url(32);
+  const scopes = options.scopes?.length ? options.scopes : GOOGLE_WORKSPACE_SCOPES;
+  const server = await listenForOAuthCode(state, options.timeoutMs ?? 180_000);
+  const authUrl = buildAuthUrl({
+    clientId,
+    redirectUri: server.redirectUri,
+    scopes,
+    state,
+    codeChallenge: sha256Base64Url(verifier)
+  });
+
+  output("Opening Google OAuth consent in your browser.");
+  output(authUrl);
+  if (options.openBrowser !== false) {
+    openBrowser(authUrl);
+  }
+
+  const code = await server.code;
+  const token = await exchangeCodeForToken({ clientId, clientSecret, code, redirectUri: server.redirectUri, codeVerifier: verifier });
+  if (!token.refresh_token) {
+    throw new Error("Google did not return a refresh token. Re-run login and approve offline access/consent.");
+  }
+  saveOAuthState(config, {
+    clientId,
+    ...(clientSecret ? { clientSecret } : {}),
+    scopes,
+    refreshToken: token.refresh_token,
+    accessToken: token.access_token,
+    expiresAt: expiresAt(token.expires_in),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  return `Google OAuth connected. Saved credentials to ${config.googleOAuthPath}`;
+}
+
+export function googleStatus(config: ButterclawConfig): string {
+  const state = loadOAuthState(config);
+  if (!state.refreshToken) {
+    return "Google OAuth is not connected. Run: butterclaw google login";
+  }
+  return [
+    "Google OAuth connected.",
+    `Client ID: ${state.clientId ?? "(unknown)"}`,
+    `Scopes: ${(state.scopes ?? []).join(", ") || "(unknown)"}`,
+    `Access token expires: ${state.expiresAt ?? "(unknown)"}`,
+    `Stored at: ${config.googleOAuthPath}`
+  ].join("\n");
+}
+
+export function logoutGoogle(config: ButterclawConfig): string {
+  if (fs.existsSync(config.googleOAuthPath)) {
+    fs.rmSync(config.googleOAuthPath);
+  }
+  return "Google OAuth credentials removed.";
+}
+
+export function buildAuthUrl(input: {
+  clientId: string;
+  redirectUri: string;
+  scopes: string[];
+  state: string;
+  codeChallenge: string;
+}): string {
+  const params = new URLSearchParams({
+    client_id: input.clientId,
+    redirect_uri: input.redirectUri,
+    response_type: "code",
+    scope: input.scopes.join(" "),
+    access_type: "offline",
+    include_granted_scopes: "true",
+    prompt: "consent",
+    code_challenge: input.codeChallenge,
+    code_challenge_method: "S256",
+    state: input.state
+  });
+  return `${AUTH_URL}?${params.toString()}`;
+}
+
+export async function exchangeCodeForToken(input: {
+  clientId: string;
+  clientSecret?: string;
+  code: string;
+  redirectUri: string;
+  codeVerifier: string;
+}): Promise<TokenResponse> {
+  return tokenRequest({
+    client_id: input.clientId,
+    ...(input.clientSecret ? { client_secret: input.clientSecret } : {}),
+    code: input.code,
+    code_verifier: input.codeVerifier,
+    redirect_uri: input.redirectUri,
+    grant_type: "authorization_code"
+  });
+}
+
+class GoogleOAuth {
   constructor(private readonly config: ButterclawConfig) {}
+
+  async accessToken(): Promise<string> {
+    const state = loadOAuthState(this.config);
+    if (!state.refreshToken || !state.clientId) {
+      throw new Error("Google OAuth is not connected. Run: butterclaw google login");
+    }
+    if (state.accessToken && state.expiresAt && Date.parse(state.expiresAt) > Date.now() + 60_000) {
+      return state.accessToken;
+    }
+    const token = await tokenRequest({
+      client_id: state.clientId,
+      ...(state.clientSecret ? { client_secret: state.clientSecret } : {}),
+      refresh_token: state.refreshToken,
+      grant_type: "refresh_token"
+    });
+    if (!token.access_token) {
+      throw new Error("Google OAuth refresh did not return an access token.");
+    }
+    const next = {
+      ...state,
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token ?? state.refreshToken,
+      expiresAt: expiresAt(token.expires_in),
+      updatedAt: new Date().toISOString()
+    };
+    saveOAuthState(this.config, next);
+    return next.accessToken;
+  }
+}
+
+class GoogleWorkspaceTools {
+  private readonly oauth: GoogleOAuth;
+
+  constructor(private readonly config: ButterclawConfig) {
+    this.oauth = new GoogleOAuth(config);
+  }
 
   async searchGmail(args: Record<string, unknown>): Promise<ToolResult> {
     const query = String(args.query ?? "").trim();
@@ -192,7 +374,7 @@ class GoogleWorkspaceTools {
     const response = await fetch(withQuery(url, options.query, options.queryList), {
       method: options.method ?? "GET",
       headers: {
-        Authorization: `Bearer ${this.token()}`,
+        Authorization: `Bearer ${await this.oauth.accessToken()}`,
         Accept: "application/json",
         ...(options.body === undefined ? {} : { "Content-Type": "application/json" })
       },
@@ -214,17 +396,108 @@ class GoogleWorkspaceTools {
     }
   }
 
-  private token(): string {
-    const token = process.env[this.config.googleTokenEnv]?.trim();
-    if (!token) {
-      throw new Error(`Missing Google access token. Set ${this.config.googleTokenEnv}.`);
-    }
-    return token;
-  }
-
   private calendarId(value: unknown): string {
     return String(value ?? this.config.googleCalendarId ?? "primary").trim() || "primary";
   }
+}
+
+function loadOAuthState(config: ButterclawConfig): GoogleOAuthState {
+  return readJsonFile<GoogleOAuthState>(config.googleOAuthPath, {});
+}
+
+function saveOAuthState(config: ButterclawConfig, state: GoogleOAuthState): void {
+  writeJsonFile(config.googleOAuthPath, state);
+}
+
+async function tokenRequest(fields: Record<string, string>): Promise<TokenResponse> {
+  const response = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body: new URLSearchParams(fields).toString()
+  });
+  const text = await response.text();
+  let parsed: TokenResponse;
+  try {
+    parsed = JSON.parse(text) as TokenResponse;
+  } catch {
+    throw new Error(`Google OAuth returned non-JSON response: ${truncate(text, 500)}`);
+  }
+  if (!response.ok || parsed.error) {
+    throw new Error(`Google OAuth failed: ${parsed.error_description ?? parsed.error ?? text}`);
+  }
+  return parsed;
+}
+
+function listenForOAuthCode(expectedState: string, timeoutMs: number): Promise<{ redirectUri: string; code: Promise<string> }> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer();
+    const timer = setTimeout(() => {
+      server.close();
+      reject(new Error("Timed out waiting for Google OAuth callback."));
+    }, timeoutMs);
+    const code = new Promise<string>((codeResolve, codeReject) => {
+      server.on("request", (request, response) => {
+        try {
+          const url = new URL(request.url ?? "/", "http://127.0.0.1");
+          const actualState = url.searchParams.get("state");
+          const error = url.searchParams.get("error");
+          const authCode = url.searchParams.get("code");
+          if (actualState !== expectedState) {
+            throw new Error("OAuth state mismatch.");
+          }
+          if (error) {
+            throw new Error(`Google OAuth error: ${error}`);
+          }
+          if (!authCode) {
+            throw new Error("OAuth callback did not include a code.");
+          }
+          response.writeHead(200, { "Content-Type": "text/plain" });
+          response.end("Butterclaw Google OAuth is connected. You can close this tab.");
+          clearTimeout(timer);
+          server.close();
+          codeResolve(authCode);
+        } catch (error) {
+          response.writeHead(400, { "Content-Type": "text/plain" });
+          response.end(error instanceof Error ? error.message : String(error));
+          clearTimeout(timer);
+          server.close();
+          codeReject(error);
+        }
+      });
+    });
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!isRecord(address) || typeof address.port !== "number") {
+        reject(new Error("Could not start local OAuth callback server."));
+        return;
+      }
+      resolve({ redirectUri: `http://127.0.0.1:${address.port}/oauth2callback`, code });
+    });
+  });
+}
+
+function openBrowser(url: string): void {
+  const command: [string, string[]] =
+    process.platform === "win32"
+      ? ["cmd", ["/c", "start", "", url]]
+      : process.platform === "darwin"
+        ? ["open", [url]]
+        : ["xdg-open", [url]];
+  const child = childProcess.spawn(command[0], command[1], { detached: true, stdio: "ignore", shell: false });
+  child.unref();
+}
+
+function randomBase64Url(bytes: number): string {
+  return crypto.randomBytes(bytes).toString("base64url");
+}
+
+function sha256Base64Url(value: string): string {
+  return crypto.createHash("sha256").update(value).digest("base64url");
+}
+
+function expiresAt(expiresIn = 3600): string {
+  return new Date(Date.now() + Math.max(60, expiresIn) * 1000).toISOString();
 }
 
 function formatGmailSummary(message: Record<string, unknown>): string {

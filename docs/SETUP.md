@@ -51,15 +51,18 @@ butterclaw --telegram-poll
 
 ## Google Workspace
 
-Set a Google OAuth access token before using Gmail or Calendar tools:
+Set Google OAuth client credentials, then login once:
 
 ```cmd
-set GOOGLE_ACCESS_TOKEN=your-google-oauth-access-token
+set GOOGLE_CLIENT_ID=your-google-oauth-client-id
+set GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
+butterclaw google login
 butterclaw "list my calendar events"
 ```
 
-Use `--google-token-env` and `--google-calendar-id` to override the token
-environment variable or calendar ID.
+Use `butterclaw google status` to check the connection and
+`butterclaw google logout` to disconnect. Use `--google-calendar-id` to override
+the calendar ID.
 
 ## Agents And Skills
 
