@@ -3,8 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ButterclawAgent, parseToolCall } from "../src/agent.js";
+import { ButterclawAgent, buildSystemPrompt, parseToolCall } from "../src/agent.js";
 import { defaultConfig } from "../src/config.js";
+import { buildDefaultRegistry } from "../src/tools.js";
 
 test("parseToolCall reads JSON tool calls", () => {
   assert.deepEqual(parseToolCall('{"tool":"list_dir","args":{"path":"."}}'), {
@@ -48,5 +49,14 @@ test("agent can delegate to a bounded sub-agent", async () => {
   assert.match(delegated.output, /Sub-agent scout finished/);
   assert.match(delegated.output, /finished/);
   assert.equal(fs.existsSync(config.memoryPath), false);
+});
+
+test("system prompt only mentions delegation when the tool is present", () => {
+  const config = defaultConfig();
+  const workerPrompt = buildSystemPrompt(buildDefaultRegistry(config), [], []);
+  const parentPrompt = buildSystemPrompt(new ButterclawAgent(config).registry, [], []);
+
+  assert.doesNotMatch(workerPrompt, /Use delegate_task/);
+  assert.match(parentPrompt, /Use delegate_task/);
 });
 

@@ -1,3 +1,4 @@
+import { AgentProfile, AgentStore, applyAgentProfile } from "./agents.js";
 import { ButterclawConfig } from "./config.js";
 import { LocalMemory } from "./memory.js";
 import { buildProvider, Message, Provider } from "./providers.js";
@@ -19,6 +20,7 @@ export class ButterclawAgent {
   private readonly memory: LocalMemory;
   private readonly skills: SkillLoader;
   private readonly recordMemory: boolean;
+  private readonly agentProfile?: AgentProfile;
 
   constructor(
     private readonly config: ButterclawConfig,
@@ -29,6 +31,7 @@ export class ButterclawAgent {
       usage?: UsageTracker;
       enableDelegation?: boolean;
       recordMemory?: boolean;
+      agentProfile?: AgentProfile;
     } = {}
   ) {
     this.provider = options.provider ?? buildProvider(config);
@@ -37,6 +40,7 @@ export class ButterclawAgent {
     this.usage = options.usage ?? UsageTracker.fromConfig(config);
     this.skills = new SkillLoader(config.skillsDir, config.maxSkillChars);
     this.recordMemory = options.recordMemory ?? true;
+    this.agentProfile = options.agentProfile;
     if (options.enableDelegation !== false) {
       this.registerDelegationTool();
     }
@@ -75,7 +79,8 @@ export class ButterclawAgent {
         content: buildSystemPrompt(
           this.registry,
           this.memory.search(userInput, this.config.memoryItems),
-          this.skills.relevantTo(userInput)
+          this.skills.relevantTo(userInput),
+          this.agentProfile
         )
       },
       { role: "user", content: userInput }
@@ -88,6 +93,7 @@ export class ButterclawAgent {
       description: "Ask a focused sub-agent to work on a bounded task and report back",
       args: {
         task: "focused task for the sub-agent",
+        agent: "optional named agent profile to use",
         role: "optional short role name, default worker",
         maxSteps: "optional worker step limit, capped below the main agent limit"
       },
@@ -102,22 +108,33 @@ export class ButterclawAgent {
     }
 
     const role = truncate(String(args.role ?? "worker").trim() || "worker", 80);
+    const profileName = String(args.agent ?? "").trim();
+    const profile = profileName ? new AgentStore(this.config.agentsDir).get(profileName) : null;
+    if (profileName && !profile) {
+      return { ok: false, output: `Unknown agent: ${profileName}` };
+    }
     const maxSteps = boundedInt(args.maxSteps, 1, Math.max(1, this.config.maxSteps - 1), Math.min(3, this.config.maxSteps));
     const maxOutputChars = boundedInt(args.maxOutputChars, 500, 20_000, 8_000);
-    const workerConfig = { ...this.config, maxSteps };
+    const workerConfig = { ...this.config };
+    if (profile) {
+      applyAgentProfile(workerConfig, profile);
+    }
+    workerConfig.maxSteps = maxSteps;
     const worker = new ButterclawAgent(workerConfig, {
       provider: this.provider,
       registry: buildDefaultRegistry(workerConfig),
       memory: this.memory,
       usage: this.usage,
       enableDelegation: false,
-      recordMemory: false
+      recordMemory: false,
+      ...(profile ? { agentProfile: profile } : {})
     });
 
-    const result = await worker.run(`You are a focused ${role} sub-agent. Complete this task and report only useful results:\n${task}`);
+    const workerName = profile?.name ?? role;
+    const result = await worker.run(`You are a focused ${workerName} sub-agent. Complete this task and report only useful results:\n${task}`);
     return {
       ok: true,
-      output: truncate(`Sub-agent ${role} finished in ${result.steps} step(s):\n${result.answer}`, maxOutputChars)
+      output: truncate(`Sub-agent ${workerName} finished in ${result.steps} step(s):\n${result.answer}`, maxOutputChars)
     };
   }
 
@@ -130,20 +147,34 @@ export class ButterclawAgent {
   }
 }
 
-export function buildSystemPrompt(registry: ToolRegistry, memoryItems: string[], skills: string[]): string {
+export function buildSystemPrompt(
+  registry: ToolRegistry,
+  memoryItems: string[],
+  skills: string[],
+  agentProfile?: AgentProfile
+): string {
   const memoryBlock = memoryItems.map((item) => `- ${item}`).join("\n") || "- No relevant memory yet.";
   const skillsBlock = skills.join("\n\n") || "No relevant skills loaded.";
+  const agentBlock = agentProfile
+    ? `Name: ${agentProfile.name}\nDescription: ${agentProfile.description}\nInstructions:\n${agentProfile.instructions}`
+    : "Default Butterclaw agent.";
+  const toolDocs = registry.describe();
+  const delegationHint = toolDocs.includes("- delegate_task:")
+    ? "\nUse delegate_task when a focused sub-agent can inspect, research, or carry out a small part of the task independently.\n"
+    : "";
   return `You are Butterclaw, a lightweight local-first agent.
 
 Use short, direct reasoning. Prefer small, reversible steps. Avoid unnecessary work when a focused action solves the task.
 
+Active agent:
+${agentBlock}
+
 Available tools:
-${registry.describe()}
+${toolDocs}
 
 To use a tool, respond with one JSON object and nothing else:
 {"tool":"tool_name","args":{"key":"value"}}
-
-Use delegate_task when a focused sub-agent can inspect, research, or carry out a small part of the task independently.
+${delegationHint}
 
 For normal answers, respond in plain text. Do not wrap final answers in JSON.
 

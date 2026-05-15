@@ -12,6 +12,7 @@ Telegram channel without requiring a large service stack.
 - TypeScript Node CLI
 - first-run setup command
 - provider adapters for `mock`, `ollama`, and OpenAI-compatible chat APIs
+- saved agent profiles with custom instructions
 - Telegram long-polling channel for phone/chat access
 - local file tools: list, read, write, and search inside a workspace
 - optional shell tool with timeout and workspace guard
@@ -39,6 +40,19 @@ Start Butterclaw:
 
 ```cmd
 butterclaw
+```
+
+Create and use an agent:
+
+```cmd
+butterclaw agent create debugger --description "Finds bugs" --instructions "Find root causes first. Reproduce before fixing."
+butterclaw --agent debugger "inspect this workspace"
+```
+
+Create a skill:
+
+```cmd
+butterclaw skill create bug-hunt --description "Use for debugging." --body "Check reproduction, logs, tests, and the smallest fix."
 ```
 
 Run a one-off task:
@@ -106,6 +120,26 @@ Config defaults to `%APPDATA%\butterclaw\config.json` on Windows and
 Secrets stay in environment variables. Butterclaw does not issue its own API
 key; use the key from your chosen model provider.
 
+## Agents And Skills
+
+Agents are saved JSON profiles in your Butterclaw config folder. Use them for
+roles like `debugger`, `reviewer`, `builder`, or `researcher`.
+
+```cmd
+butterclaw agent list
+butterclaw agent show debugger
+butterclaw agent create reviewer --description "Reviews code" --instructions "Find bugs, missing tests, and risky behavior first."
+butterclaw --agent reviewer "review the current project"
+```
+
+Skills are local Markdown files that Butterclaw loads when they match the task.
+
+```cmd
+butterclaw skill list
+butterclaw skill show bug-hunt
+butterclaw skill create release-check --description "Use before releases." --body "Run tests, inspect docs, and check version notes."
+```
+
 ## Tool Call Protocol
 
 Butterclaw asks models to respond with plain text for normal answers, or with a
@@ -121,8 +155,9 @@ support native tool calling.
 
 Butterclaw also exposes a `delegate_task` tool to the main agent. It starts a
 bounded sub-agent with the same workspace tools, asks it to finish one focused
-task, and returns the worker's result to the main conversation. Sub-agents do
-not get their own delegation tool, so delegation stays simple and finite.
+task, and returns the worker's result to the main conversation. Sub-agents can
+use saved agent profiles through the `agent` argument, but they do not get their
+own delegation tool, so delegation stays simple and finite.
 
 ## Development
 

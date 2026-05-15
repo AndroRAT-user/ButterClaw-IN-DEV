@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { isSetupTask, parseArgs } from "../src/cli.js";
-import { defaultConfig } from "../src/config.js";
+import { defaultConfig, loadConfig } from "../src/config.js";
 import { runSetup } from "../src/setup.js";
 
 test("setup alias detection", () => {
@@ -17,6 +17,8 @@ test("cli parser reads flags and task text", () => {
   const args = parseArgs([
     "--provider",
     "ollama",
+    "--agent",
+    "debugger",
     "--allow-shell",
     "--telegram-allowed-chat",
     "123,456",
@@ -24,6 +26,7 @@ test("cli parser reads flags and task text", () => {
     "files"
   ]);
   assert.equal(args.provider, "ollama");
+  assert.equal(args.agent, "debugger");
   assert.equal(args.allowShell, true);
   assert.deepEqual(args.telegramAllowedChat, ["123", "456"]);
   assert.deepEqual(args.task, ["list", "files"]);
@@ -43,6 +46,7 @@ test("setup writes config and starter skill", async () => {
   const lines: string[] = [];
   await runSetup(config, path.join(root, "config.json"), () => answers.shift() ?? "", (line) => lines.push(line));
   assert.equal(fs.existsSync(path.join(root, "config.json")), true);
+  assert.equal(fs.existsSync(path.join(root, "config", "agents")), true);
   assert.equal(fs.existsSync(path.join(root, "config", "memory.jsonl")), true);
   assert.equal(fs.existsSync(path.join(root, "config", "skills", "starter.md")), true);
   assert.match(lines.join("\n"), /Wrote config/);
@@ -53,8 +57,17 @@ test("setup with custom config keeps files nearby", async () => {
   const config = defaultConfig({ baseUrl: "http://127.0.0.1:1" });
   const answers = ["", "", "", "", "", ""];
   await runSetup(config, path.join(root, "custom", "butterclaw.json"), () => answers.shift() ?? "", () => undefined);
+  assert.equal(fs.existsSync(path.join(root, "custom", "agents")), true);
   assert.equal(fs.existsSync(path.join(root, "custom", "skills", "starter.md")), true);
   assert.equal(fs.existsSync(path.join(root, "custom", "memory.jsonl")), true);
+});
+
+test("missing custom config defaults nearby", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "butterclaw-config-"));
+  const config = loadConfig(path.join(root, "custom", "butterclaw.json"));
+  assert.equal(config.configDir, path.join(root, "custom"));
+  assert.equal(config.agentsDir, path.join(root, "custom", "agents"));
+  assert.equal(config.skillsDir, path.join(root, "custom", "skills"));
 });
 
 test("openai-compatible setup defaults to OpenRouter gpt-oss free model", async () => {

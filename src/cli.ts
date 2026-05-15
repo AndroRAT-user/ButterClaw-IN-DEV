@@ -2,9 +2,11 @@
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { ButterclawAgent } from "./agent.js";
+import { AgentProfile, AgentStore, applyAgentProfile } from "./agents.js";
 import { TelegramChannel, TelegramError } from "./channels/telegram.js";
 import { ButterclawConfig, configPath, loadConfig, saveConfig } from "./config.js";
 import { runSetup } from "./setup.js";
+import { SkillLoader } from "./skills.js";
 import { splitCsv } from "./util.js";
 
 interface Args {
@@ -15,6 +17,7 @@ interface Args {
   showTools: boolean;
   version: boolean;
   help: boolean;
+  agent?: string;
   provider?: ButterclawConfig["provider"];
   model?: string;
   baseUrl?: string;
@@ -45,6 +48,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   const configFile = args.config ?? configPath();
   const config = loadConfig(args.config);
+  const command = args.task[0]?.toLowerCase();
+  if (command === "agent" || command === "agents") {
+    return handleCommand(() => runAgentCommand(config, args.task.slice(1)));
+  }
+  if (command === "skill" || command === "skills") {
+    return handleCommand(() => runSkillCommand(config, args.task.slice(1)));
+  }
+  const agentProfile = args.agent ? new AgentStore(config.agentsDir).get(args.agent) : null;
+  if (args.agent && !agentProfile) {
+    console.error(`Butterclaw failed: Unknown agent: ${args.agent}`);
+    return 1;
+  }
+  if (agentProfile) {
+    applyAgentProfile(config, agentProfile);
+  }
   applyOverrides(config, args);
 
   if (args.setup || isSetupTask(args.task)) {
@@ -56,18 +74,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return 0;
   }
   if (args.showTools) {
-    console.log(new ButterclawAgent(config).registry.describe());
+    console.log(new ButterclawAgent(config, { ...(agentProfile ? { agentProfile } : {}) }).registry.describe());
     return 0;
   }
   if (args.telegramPoll) {
-    return runTelegram(config, args.telegramOnce);
+    return runTelegram(config, args.telegramOnce, agentProfile ?? undefined);
   }
 
   const task = args.task.join(" ").trim();
   if (!task) {
     return repl(config);
   }
-  return runOnce(config, task);
+  return runOnce(config, task, agentProfile ?? undefined);
 }
 
 export function parseArgs(argv: string[]): Args {
@@ -87,6 +105,7 @@ export function parseArgs(argv: string[]): Args {
 
   const valueOptions: Record<string, (value: string) => void> = {
     "--config": (value) => (args.config = value),
+    "--agent": (value) => (args.agent = value),
     "--provider": (value) => (args.provider = value as ButterclawConfig["provider"]),
     "--model": (value) => (args.model = value),
     "--base-url": (value) => (args.baseUrl = value),
@@ -150,9 +169,9 @@ function applyOverrides(config: ButterclawConfig, args: Args): void {
   if (args.telegramIdleSleep !== undefined) config.telegramIdleSleepSeconds = args.telegramIdleSleep;
 }
 
-async function runOnce(config: ButterclawConfig, task: string): Promise<number> {
+async function runOnce(config: ButterclawConfig, task: string, agentProfile?: AgentProfile): Promise<number> {
   try {
-    const result = await new ButterclawAgent(config).run(task);
+    const result = await new ButterclawAgent(config, { ...(agentProfile ? { agentProfile } : {}) }).run(task);
     console.log(result.answer);
     return 0;
   } catch (error) {
@@ -161,9 +180,9 @@ async function runOnce(config: ButterclawConfig, task: string): Promise<number> 
   }
 }
 
-async function runTelegram(config: ButterclawConfig, once: boolean): Promise<number> {
+async function runTelegram(config: ButterclawConfig, once: boolean, agentProfile?: AgentProfile): Promise<number> {
   try {
-    await new TelegramChannel(config).runForever(new ButterclawAgent(config), once);
+    await new TelegramChannel(config).runForever(new ButterclawAgent(config, { ...(agentProfile ? { agentProfile } : {}) }), once);
     return 0;
   } catch (error) {
     const prefix = error instanceof TelegramError ? "Telegram failed" : "Butterclaw Telegram channel failed";
@@ -189,6 +208,101 @@ async function repl(config: ButterclawConfig): Promise<number> {
   }
 }
 
+export function runAgentCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): number {
+  const store = new AgentStore(config.agentsDir);
+  const command = argv[0]?.toLowerCase() ?? "list";
+  if (command === "list") {
+    const agents = store.list();
+    outputFunc(agents.length ? agents.map((agent) => `${agent.name}: ${agent.description}`).join("\n") : "No agents yet.");
+    return 0;
+  }
+  if (command === "show") {
+    const name = argv[1] ?? "";
+    const agent = store.get(name);
+    if (!agent) throw new Error(`Unknown agent: ${name}`);
+    outputFunc(JSON.stringify(agent, null, 2));
+    return 0;
+  }
+  if (command === "create") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const name = parsed.positionals[0] ?? "";
+    const agent = store.create({
+      name,
+      description: parsed.values.description,
+      instructions: parsed.values.instructions ?? parsed.values.prompt,
+      provider: parsed.values.provider as ButterclawConfig["provider"] | undefined,
+      model: parsed.values.model,
+      baseUrl: parsed.values["base-url"],
+      maxSteps: parsed.values["max-steps"] ? Number(parsed.values["max-steps"]) : undefined,
+      skills: parsed.values.skills ? splitCsv(parsed.values.skills) : undefined,
+      overwrite: parsed.flags.has("force")
+    });
+    outputFunc(`Created agent ${agent.name} in ${config.agentsDir}`);
+    return 0;
+  }
+  throw new Error("Usage: butterclaw agent list | show <name> | create <name> [--description text] [--instructions text] [--model name] [--provider name] [--force]");
+}
+
+export function runSkillCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): number {
+  const loader = new SkillLoader(config.skillsDir, config.maxSkillChars);
+  const command = argv[0]?.toLowerCase() ?? "list";
+  if (command === "list") {
+    const skills = loader.list();
+    outputFunc(skills.length ? skills.join("\n") : "No skills yet.");
+    return 0;
+  }
+  if (command === "show") {
+    const name = argv[1] ?? "";
+    const skill = loader.read(name);
+    if (skill === null) throw new Error(`Unknown skill: ${name}`);
+    outputFunc(skill);
+    return 0;
+  }
+  if (command === "create") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const name = parsed.positionals[0] ?? "";
+    const file = loader.create({
+      name,
+      description: parsed.values.description,
+      body: parsed.values.body ?? parsed.values.instructions,
+      overwrite: parsed.flags.has("force")
+    });
+    outputFunc(`Created skill ${name} at ${file}`);
+    return 0;
+  }
+  throw new Error("Usage: butterclaw skill list | show <name> | create <name> [--description text] [--body text] [--force]");
+}
+
+function handleCommand(command: () => number): number {
+  try {
+    return command();
+  } catch (error) {
+    console.error(`Butterclaw failed: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
+}
+
+function parseCommandOptions(argv: string[]): { positionals: string[]; values: Record<string, string>; flags: Set<string> } {
+  const positionals: string[] = [];
+  const values: Record<string, string> = {};
+  const flags = new Set<string>();
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (!arg.startsWith("--")) {
+      positionals.push(arg);
+      continue;
+    }
+    const key = arg.slice(2);
+    if (key === "force") {
+      flags.add(key);
+      continue;
+    }
+    index += 1;
+    values[key] = argv[index] ?? "";
+  }
+  return { positionals, values, flags };
+}
+
 function printHelp(): void {
   console.log(`Usage: butterclaw [options] [task...]
 
@@ -197,6 +311,7 @@ Options:
   --init-config                   Write a starter config
   --show-tools                    Print available tools
   --version                       Print version
+  --agent <name>                  Run as a saved agent profile
   --provider <mock|ollama|openai-compatible>
   --model <model>
   --base-url <url>
@@ -212,5 +327,11 @@ Options:
   --telegram-base-url <url>
   --telegram-allowed-chat <id>
   --telegram-timeout <seconds>
-  --telegram-idle-sleep <seconds>`);
+  --telegram-idle-sleep <seconds>
+
+Commands:
+  butterclaw agent list
+  butterclaw agent create <name> --description <text> --instructions <text>
+  butterclaw skill list
+  butterclaw skill create <name> --description <text> --body <text>`);
 }

@@ -64,3 +64,15 @@ export function splitCsv(value: string): string[] {
     .map((part) => part.trim())
     .filter(Boolean);
 }
+
+export function slugName(value: string, label = "name"): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(slug)) {
+    throw new Error(`${label} must start with a letter or number and use only letters, numbers, dots, underscores, or dashes.`);
+  }
+  return slug;
+}

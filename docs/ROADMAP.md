@@ -9,6 +9,7 @@ powers with fewer moving pieces.
 - TypeScript Node CLI
 - first-run setup/onboarding command
 - mock, Ollama, and OpenAI-compatible providers
+- saved agent profiles
 - workspace-confined file tools
 - optional shell tool
 - bounded sub-agents for focused delegated tasks

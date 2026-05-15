@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { readJsonFile, writeJsonFile } from "./util.js";
@@ -26,6 +27,7 @@ export interface ButterclawConfig {
   telegramPollTimeoutSeconds: number;
   telegramIdleSleepSeconds: number;
   telegramMaxReplyChars: number;
+  agentsDir: string;
   skillsDir: string;
   memoryPath: string;
   telegramStatePath: string;
@@ -66,6 +68,7 @@ export function defaultConfig(overrides: Partial<ButterclawConfig> = {}): Butter
     telegramPollTimeoutSeconds: 25,
     telegramIdleSleepSeconds: 1,
     telegramMaxReplyChars: 3900,
+    agentsDir: path.join(configDir, "agents"),
     skillsDir: path.join(configDir, "skills"),
     memoryPath: path.join(configDir, "memory.jsonl"),
     telegramStatePath: path.join(configDir, "telegram-state.json"),
@@ -80,6 +83,7 @@ export function normalizeConfig(config: ButterclawConfig): ButterclawConfig {
     workspace: path.resolve(config.workspace),
     configDir,
     telegramAllowedChats: config.telegramAllowedChats.map(String),
+    agentsDir: path.resolve(config.agentsDir || path.join(configDir, "agents")),
     skillsDir: path.resolve(config.skillsDir || path.join(configDir, "skills")),
     memoryPath: path.resolve(config.memoryPath || path.join(configDir, "memory.jsonl")),
     telegramStatePath: path.resolve(config.telegramStatePath || path.join(configDir, "telegram-state.json"))
@@ -88,6 +92,9 @@ export function normalizeConfig(config: ButterclawConfig): ButterclawConfig {
 
 export function loadConfig(customPath?: string): ButterclawConfig {
   const target = customPath ?? configPath();
+  if (customPath && !fs.existsSync(target)) {
+    return defaultConfig({ configDir: path.dirname(path.resolve(target)) });
+  }
   return defaultConfig(readJsonFile<Partial<ButterclawConfig>>(target, {}));
 }
 

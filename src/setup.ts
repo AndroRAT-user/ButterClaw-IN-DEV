@@ -50,6 +50,7 @@ export async function runSetup(
     saveConfig(config, targetPath);
     outputFunc("");
     outputFunc(`Wrote config: ${targetPath}`);
+    outputFunc(`Agents folder: ${config.agentsDir}`);
     outputFunc(`Skills folder: ${config.skillsDir}`);
     outputFunc(`Memory file: ${config.memoryPath}`);
     outputFunc("");
@@ -79,6 +80,7 @@ export function alignConfigDirWithCustomPath(config: ButterclawConfig, targetPat
   }
 
   config.configDir = path.dirname(requestedPath);
+  config.agentsDir = path.join(config.configDir, "agents");
   config.skillsDir = path.join(config.configDir, "skills");
   config.memoryPath = path.join(config.configDir, "memory.jsonl");
   config.telegramStatePath = path.join(config.configDir, "telegram-state.json");
@@ -104,6 +106,7 @@ export async function ollamaReachable(baseUrl: string): Promise<boolean> {
 export function createLocalFiles(config: ButterclawConfig): void {
   ensureDir(config.configDir);
   ensureDir(config.workspace);
+  ensureDir(config.agentsDir);
   ensureDir(config.skillsDir);
   const starter = path.join(config.skillsDir, "starter.md");
   if (!fs.existsSync(starter)) {
