@@ -52,3 +52,16 @@ test("openai-compatible setup defaults to OpenRouter gpt-oss free model", async 
   assert.equal(saved.baseUrl, "https://openrouter.ai/api/v1");
   assert.equal(saved.model, "openai/gpt-oss-120b:free");
 });
+
+test("setup rejects invalid provider key environment variable names", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "butterclaw-setup-"));
+  const config = defaultConfig({ baseUrl: null });
+  const answers = ["3", "", "", "my api", "MODEL_PROVIDER_API_KEY", "", "", ""];
+  const lines: string[] = [];
+
+  await runSetup(config, path.join(root, "config.json"), () => answers.shift() ?? "", (line) => lines.push(line));
+
+  const saved = JSON.parse(fs.readFileSync(path.join(root, "config.json"), "utf8"));
+  assert.equal(saved.apiKeyEnv, "MODEL_PROVIDER_API_KEY");
+  assert.match(lines.join("\n"), /No spaces or equals signs/);
+});

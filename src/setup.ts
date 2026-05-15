@@ -48,7 +48,7 @@ export async function runSetup(
     if (config.provider === "openai-compatible") {
       config.baseUrl = await prompt(inputFunc, "OpenAI-compatible base URL", config.baseUrl ?? "https://openrouter.ai/api/v1");
       outputFunc("Butterclaw does not issue API keys. Use a key from your chosen model provider.");
-      config.apiKeyEnv = await prompt(inputFunc, "Environment variable for your model provider key", config.apiKeyEnv);
+      config.apiKeyEnv = await promptEnvName(inputFunc, outputFunc, "Environment variable for your model provider key", config.apiKeyEnv);
     } else if (config.provider === "ollama") {
       config.baseUrl = await prompt(inputFunc, "Ollama base URL", config.baseUrl ?? "http://localhost:11434");
     }
@@ -83,7 +83,7 @@ export async function runSetup(
     } else if (config.provider === "openai-compatible") {
       outputFunc("");
       outputFunc("Before using the model provider:");
-      outputFunc(`  set ${config.apiKeyEnv}=your-api-key`);
+      outputFunc(`  set ${config.apiKeyEnv}=paste-your-provider-key-here`);
     }
     return 0;
   } finally {
@@ -177,6 +177,21 @@ async function choose(
 async function prompt(inputFunc: InputFunc, label: string, defaultValue: string): Promise<string> {
   const value = (await inputFunc(`${label} [${defaultValue}]: `)).trim();
   return value || defaultValue;
+}
+
+async function promptEnvName(
+  inputFunc: InputFunc,
+  outputFunc: OutputFunc,
+  label: string,
+  defaultValue: string
+): Promise<string> {
+  while (true) {
+    const value = await prompt(inputFunc, label, defaultValue);
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+      return value;
+    }
+    outputFunc("Use a variable name like MODEL_PROVIDER_API_KEY. No spaces or equals signs.");
+  }
 }
 
 async function promptInt(inputFunc: InputFunc, label: string, defaultValue: number): Promise<number> {
