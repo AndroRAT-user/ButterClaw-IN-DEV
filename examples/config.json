@@ -1,0 +1,13 @@
+{
+  "provider": "mock",
+  "model": "mock-cheap",
+  "base_url": null,
+  "api_key_env": "BUTTERCLAW_API_KEY",
+  "max_steps": 6,
+  "max_context_chars": 12000,
+  "daily_budget_usd": 0.25,
+  "shell_mode": "deny",
+  "allow_outside_workspace": false,
+  "cheap_mode": true
+}
+
