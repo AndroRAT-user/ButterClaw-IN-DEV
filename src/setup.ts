@@ -46,7 +46,7 @@ export async function runSetup(
     config.model = await prompt(inputFunc, "Model", defaultModelFor(config.provider, config.model));
 
     if (config.provider === "openai-compatible") {
-      config.baseUrl = await prompt(inputFunc, "OpenAI-compatible base URL", config.baseUrl ?? "https://api.openai.com/v1");
+      config.baseUrl = await prompt(inputFunc, "OpenAI-compatible base URL", config.baseUrl ?? "https://openrouter.ai/api/v1");
       outputFunc("Butterclaw does not issue API keys. Use a key from your chosen model provider.");
       config.apiKeyEnv = await prompt(inputFunc, "Environment variable for your model provider key", config.apiKeyEnv);
     } else if (config.provider === "ollama") {
@@ -145,7 +145,7 @@ function defaultModelFor(provider: ButterclawConfig["provider"], current: string
   if (provider === "ollama") {
     return current && current !== "mock-local" ? current : "llama3.2:3b";
   }
-  return current && current !== "mock-local" ? current : "gpt-4.1-mini";
+  return current && current !== "mock-local" ? current : "openai/gpt-oss-120b:free";
 }
 
 async function choose(

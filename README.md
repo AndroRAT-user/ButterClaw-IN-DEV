@@ -58,7 +58,7 @@ Use an OpenAI-compatible endpoint:
 
 ```cmd
 set MODEL_PROVIDER_API_KEY=your-provider-api-key
-butterclaw --provider openai-compatible --base-url https://api.openai.com/v1 --model gpt-4.1-mini "make a plan for my project"
+butterclaw --provider openai-compatible --base-url https://openrouter.ai/api/v1 --model openai/gpt-oss-120b:free "make a plan for my project"
 ```
 
 Enable shell commands only when you actually need them:

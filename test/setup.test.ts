@@ -41,3 +41,14 @@ test("setup with custom config keeps files nearby", async () => {
   assert.equal(fs.existsSync(path.join(root, "custom", "memory.jsonl")), true);
 });
 
+test("openai-compatible setup defaults to OpenRouter gpt-oss free model", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "butterclaw-setup-"));
+  const config = defaultConfig({ baseUrl: null });
+  const answers = ["3", "", "", "", "", "", ""];
+  await runSetup(config, path.join(root, "config.json"), () => answers.shift() ?? "", () => undefined);
+
+  const saved = JSON.parse(fs.readFileSync(path.join(root, "config.json"), "utf8"));
+  assert.equal(saved.provider, "openai-compatible");
+  assert.equal(saved.baseUrl, "https://openrouter.ai/api/v1");
+  assert.equal(saved.model, "openai/gpt-oss-120b:free");
+});

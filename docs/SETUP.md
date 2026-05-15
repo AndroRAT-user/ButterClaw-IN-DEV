@@ -34,7 +34,7 @@ For a lightweight local setup, choose:
 For a hosted API, choose:
 
 - provider: `openai-compatible`
-- model: the model you want to use
+- model: `openai/gpt-oss-120b:free` or the model you want to use
 
 Butterclaw does not issue its own API key. It stores the environment variable
 name for your chosen model provider's key, not the secret itself.

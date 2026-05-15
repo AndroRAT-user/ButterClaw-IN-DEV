@@ -32,7 +32,7 @@ export function buildProvider(config: ButterclawConfig): Provider {
   if (config.provider === "openai-compatible") {
     return new OpenAICompatibleProvider(
       config.model,
-      config.baseUrl ?? "https://api.openai.com/v1",
+      config.baseUrl ?? "https://openrouter.ai/api/v1",
       process.env[config.apiKeyEnv] ?? "",
       config.requestTimeoutSeconds
     );
@@ -75,7 +75,11 @@ export class OpenAICompatibleProvider implements Provider {
       `${this.baseUrl.replace(/\/$/, "")}/chat/completions`,
       { model: this.model, messages, temperature: 0.2 },
       this.timeoutSeconds,
-      { Authorization: `Bearer ${this.apiKey}` }
+      {
+        Authorization: `Bearer ${this.apiKey}`,
+        ...optionalHeader("HTTP-Referer", process.env.BUTTERCLAW_SITE_URL),
+        ...optionalHeader("X-Title", process.env.BUTTERCLAW_APP_NAME ?? "Butterclaw")
+      }
     );
     const content = String(raw?.choices?.[0]?.message?.content ?? "");
     const usage = raw?.usage ?? {};
@@ -86,6 +90,10 @@ export class OpenAICompatibleProvider implements Provider {
       raw
     };
   }
+}
+
+function optionalHeader(name: string, value: string | undefined): Record<string, string> {
+  return value ? { [name]: value } : {};
 }
 
 export class OllamaProvider implements Provider {
