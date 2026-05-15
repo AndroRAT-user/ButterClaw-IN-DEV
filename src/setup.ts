@@ -4,6 +4,7 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { ButterclawConfig, configPath, defaultConfigDir, saveConfig } from "./config.js";
+import { ensureDir, ensureParent, splitCsv, trimTrailingSlash } from "./util.js";
 
 type InputFunc = (question: string) => string | Promise<string>;
 type OutputFunc = (line: string) => void;
@@ -41,30 +42,9 @@ export async function runSetup(
     }
     outputFunc("");
 
-    const provider = await choose(inputFunc, outputFunc, "Choose provider", ["mock", "ollama", "openai-compatible"], config.provider);
-    config.provider = provider as ButterclawConfig["provider"];
-    config.model = await prompt(inputFunc, "Model", defaultModelFor(config.provider, config.model));
-
-    if (config.provider === "openai-compatible") {
-      config.baseUrl = await prompt(inputFunc, "OpenAI-compatible base URL", config.baseUrl ?? "https://openrouter.ai/api/v1");
-      outputFunc("Butterclaw does not issue API keys. Use a key from your chosen model provider.");
-      config.apiKeyEnv = await promptEnvName(inputFunc, outputFunc, "Environment variable for your model provider key", config.apiKeyEnv);
-    } else if (config.provider === "ollama") {
-      config.baseUrl = await prompt(inputFunc, "Ollama base URL", config.baseUrl ?? "http://localhost:11434");
-    }
-
-    config.workspace = path.resolve(await prompt(inputFunc, "Workspace folder", config.workspace));
-    config.maxSteps = await promptInt(inputFunc, "Max agent steps per task", config.maxSteps);
-    config.shellMode = (await yesNo(inputFunc, "Enable shell tool?", false)) ? "allow" : "deny";
-
-    if (await yesNo(inputFunc, "Configure Telegram channel?", false)) {
-      config.telegramTokenEnv = await prompt(inputFunc, "Telegram token environment variable", config.telegramTokenEnv);
-      const chats = await prompt(inputFunc, "Allowed Telegram chat IDs, comma-separated", config.telegramAllowedChats.join(","));
-      config.telegramAllowedChats = chats
-        .split(",")
-        .map((chat) => chat.trim())
-        .filter(Boolean);
-    }
+    await configureProvider(config, inputFunc, outputFunc);
+    await configureRuntime(config, inputFunc);
+    await configureTelegram(config, inputFunc);
 
     createLocalFiles(config);
     saveConfig(config, targetPath);
@@ -114,7 +94,7 @@ export async function systemChecks(config: ButterclawConfig): Promise<Array<[str
 
 export async function ollamaReachable(baseUrl: string): Promise<boolean> {
   try {
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/tags`, { signal: AbortSignal.timeout(2000) });
+    const response = await fetch(`${trimTrailingSlash(baseUrl)}/api/tags`, { signal: AbortSignal.timeout(2000) });
     return response.ok;
   } catch {
     return false;
@@ -122,9 +102,9 @@ export async function ollamaReachable(baseUrl: string): Promise<boolean> {
 }
 
 export function createLocalFiles(config: ButterclawConfig): void {
-  fs.mkdirSync(config.configDir, { recursive: true });
-  fs.mkdirSync(config.workspace, { recursive: true });
-  fs.mkdirSync(config.skillsDir, { recursive: true });
+  ensureDir(config.configDir);
+  ensureDir(config.workspace);
+  ensureDir(config.skillsDir);
   const starter = path.join(config.skillsDir, "starter.md");
   if (!fs.existsSync(starter)) {
     fs.writeFileSync(
@@ -133,9 +113,38 @@ export function createLocalFiles(config: ButterclawConfig): void {
       "utf8"
     );
   }
-  fs.mkdirSync(path.dirname(config.memoryPath), { recursive: true });
+  ensureParent(config.memoryPath);
   fs.closeSync(fs.openSync(config.memoryPath, "a"));
-  fs.mkdirSync(path.dirname(config.telegramStatePath), { recursive: true });
+  ensureParent(config.telegramStatePath);
+}
+
+async function configureProvider(config: ButterclawConfig, inputFunc: InputFunc, outputFunc: OutputFunc): Promise<void> {
+  const provider = await choose(inputFunc, outputFunc, "Choose provider", ["mock", "ollama", "openai-compatible"], config.provider);
+  config.provider = provider as ButterclawConfig["provider"];
+  config.model = await prompt(inputFunc, "Model", defaultModelFor(config.provider, config.model));
+
+  if (config.provider === "openai-compatible") {
+    config.baseUrl = await prompt(inputFunc, "OpenAI-compatible base URL", config.baseUrl ?? "https://openrouter.ai/api/v1");
+    outputFunc("Butterclaw does not issue API keys. Use a key from your chosen model provider.");
+    config.apiKeyEnv = await promptEnvName(inputFunc, outputFunc, "Environment variable for your model provider key", config.apiKeyEnv);
+  } else if (config.provider === "ollama") {
+    config.baseUrl = await prompt(inputFunc, "Ollama base URL", config.baseUrl ?? "http://localhost:11434");
+  }
+}
+
+async function configureRuntime(config: ButterclawConfig, inputFunc: InputFunc): Promise<void> {
+  config.workspace = path.resolve(await prompt(inputFunc, "Workspace folder", config.workspace));
+  config.maxSteps = await promptInt(inputFunc, "Max agent steps per task", config.maxSteps);
+  config.shellMode = (await yesNo(inputFunc, "Enable shell tool?", false)) ? "allow" : "deny";
+}
+
+async function configureTelegram(config: ButterclawConfig, inputFunc: InputFunc): Promise<void> {
+  if (!(await yesNo(inputFunc, "Configure Telegram channel?", false))) {
+    return;
+  }
+  config.telegramTokenEnv = await prompt(inputFunc, "Telegram token environment variable", config.telegramTokenEnv);
+  const chats = await prompt(inputFunc, "Allowed Telegram chat IDs, comma-separated", config.telegramAllowedChats.join(","));
+  config.telegramAllowedChats = splitCsv(chats);
 }
 
 function defaultModelFor(provider: ButterclawConfig["provider"], current: string): string {

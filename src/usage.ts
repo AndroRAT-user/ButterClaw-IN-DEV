@@ -1,7 +1,7 @@
-import fs from "node:fs";
 import path from "node:path";
 import { ButterclawConfig } from "./config.js";
 import { estimateTokens, Message, ProviderResponse } from "./providers.js";
+import { ensureParent, readJsonFile, writeJsonFile } from "./util.js";
 
 export interface UsageSnapshot {
   requests: number;
@@ -11,7 +11,7 @@ export interface UsageSnapshot {
 
 export class UsageTracker {
   constructor(private readonly usagePath: string) {
-    fs.mkdirSync(path.dirname(this.usagePath), { recursive: true });
+    ensureParent(this.usagePath);
   }
 
   static fromConfig(config: ButterclawConfig): UsageTracker {
@@ -30,19 +30,11 @@ export class UsageTracker {
       promptTokens: current.promptTokens + (response.promptTokens ?? 0),
       completionTokens: current.completionTokens + (response.completionTokens ?? estimateTokens(response.content))
     };
-    fs.writeFileSync(this.usagePath, JSON.stringify(next, null, 2), "utf8");
+    writeJsonFile(this.usagePath, next);
     return next;
   }
 
   current(): UsageSnapshot {
-    if (!fs.existsSync(this.usagePath)) {
-      return { requests: 0, promptTokens: 0, completionTokens: 0 };
-    }
-    try {
-      return { requests: 0, promptTokens: 0, completionTokens: 0, ...JSON.parse(fs.readFileSync(this.usagePath, "utf8")) };
-    } catch {
-      return { requests: 0, promptTokens: 0, completionTokens: 0 };
-    }
+    return { requests: 0, promptTokens: 0, completionTokens: 0, ...readJsonFile<Partial<UsageSnapshot>>(this.usagePath, {}) };
   }
 }
-

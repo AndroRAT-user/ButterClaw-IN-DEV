@@ -1,7 +1,6 @@
-import fs from "node:fs";
-import path from "node:path";
 import { ButterclawAgent } from "../agent.js";
 import { ButterclawConfig } from "../config.js";
+import { ensureParent, isRecord, readJsonFile, trimTrailingSlash, writeJsonFile } from "../util.js";
 
 export class TelegramError extends Error {}
 
@@ -56,7 +55,7 @@ export class TelegramClient implements TelegramClientProtocol {
   }
 
   private async call(method: string, payload: Record<string, unknown>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}/bot${this.token}/${method}`, {
+    const response = await fetch(`${trimTrailingSlash(this.baseUrl)}/bot${this.token}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(payload),
@@ -90,7 +89,7 @@ export class TelegramChannel {
   ) {
     this.allowedChats = new Set(config.telegramAllowedChats);
     this.statePath = config.telegramStatePath;
-    fs.mkdirSync(path.dirname(this.statePath), { recursive: true });
+    ensureParent(this.statePath);
   }
 
   async runForever(agent: ButterclawAgent, once = false): Promise<number> {
@@ -181,18 +180,11 @@ export class TelegramChannel {
   }
 
   private loadState(): Record<string, unknown> {
-    if (!fs.existsSync(this.statePath)) {
-      return {};
-    }
-    try {
-      return JSON.parse(fs.readFileSync(this.statePath, "utf8")) as Record<string, unknown>;
-    } catch {
-      return {};
-    }
+    return readJsonFile<Record<string, unknown>>(this.statePath, {});
   }
 
   private saveState(state: Record<string, unknown>): void {
-    fs.writeFileSync(this.statePath, JSON.stringify(state, null, 2), "utf8");
+    writeJsonFile(this.statePath, state);
   }
 }
 
@@ -239,10 +231,6 @@ export function splitTelegramText(text: string, maxChars = 3900): string[] {
     chunks.push(remaining);
   }
   return chunks.length ? chunks : ["(empty response)"];
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function sleep(ms: number): Promise<void> {

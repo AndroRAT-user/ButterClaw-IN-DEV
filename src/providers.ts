@@ -1,4 +1,5 @@
 import { ButterclawConfig } from "./config.js";
+import { trimTrailingSlash } from "./util.js";
 
 export interface Message {
   role: "system" | "user" | "assistant";
@@ -23,21 +24,21 @@ export function estimateTokens(text: string): number {
 }
 
 export function buildProvider(config: ButterclawConfig): Provider {
-  if (config.provider === "mock") {
-    return new MockProvider();
+  switch (config.provider) {
+    case "mock":
+      return new MockProvider();
+    case "ollama":
+      return new OllamaProvider(config.model, config.baseUrl ?? "http://localhost:11434", config.requestTimeoutSeconds);
+    case "openai-compatible":
+      return new OpenAICompatibleProvider(
+        config.model,
+        config.baseUrl ?? "https://openrouter.ai/api/v1",
+        process.env[config.apiKeyEnv] ?? "",
+        config.requestTimeoutSeconds
+      );
+    default:
+      throw new ProviderError(`Unknown provider: ${config.provider}`);
   }
-  if (config.provider === "ollama") {
-    return new OllamaProvider(config.model, config.baseUrl ?? "http://localhost:11434", config.requestTimeoutSeconds);
-  }
-  if (config.provider === "openai-compatible") {
-    return new OpenAICompatibleProvider(
-      config.model,
-      config.baseUrl ?? "https://openrouter.ai/api/v1",
-      process.env[config.apiKeyEnv] ?? "",
-      config.requestTimeoutSeconds
-    );
-  }
-  throw new ProviderError(`Unknown provider: ${config.provider}`);
 }
 
 export class MockProvider implements Provider {
@@ -72,7 +73,7 @@ export class OpenAICompatibleProvider implements Provider {
       throw new ProviderError("Missing provider API key. Set the environment variable named in apiKeyEnv.");
     }
     const raw = await postJson(
-      `${this.baseUrl.replace(/\/$/, "")}/chat/completions`,
+      `${trimTrailingSlash(this.baseUrl)}/chat/completions`,
       { model: this.model, messages, temperature: 0.2 },
       this.timeoutSeconds,
       {
@@ -92,10 +93,6 @@ export class OpenAICompatibleProvider implements Provider {
   }
 }
 
-function optionalHeader(name: string, value: string | undefined): Record<string, string> {
-  return value ? { [name]: value } : {};
-}
-
 export class OllamaProvider implements Provider {
   constructor(
     private readonly model: string,
@@ -105,13 +102,17 @@ export class OllamaProvider implements Provider {
 
   async complete(messages: Message[]): Promise<ProviderResponse> {
     const raw = await postJson(
-      `${this.baseUrl.replace(/\/$/, "")}/api/chat`,
+      `${trimTrailingSlash(this.baseUrl)}/api/chat`,
       { model: this.model, messages, stream: false, options: { temperature: 0.2 } },
       this.timeoutSeconds,
       {}
     );
     return { content: String(raw?.message?.content ?? ""), raw };
   }
+}
+
+function optionalHeader(name: string, value: string | undefined): Record<string, string> {
+  return value ? { [name]: value } : {};
 }
 
 async function postJson(

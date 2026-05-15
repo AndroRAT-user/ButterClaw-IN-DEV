@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { isSetupTask } from "../src/cli.js";
+import { isSetupTask, parseArgs } from "../src/cli.js";
 import { defaultConfig } from "../src/config.js";
 import { runSetup } from "../src/setup.js";
 
@@ -11,6 +11,22 @@ test("setup alias detection", () => {
   assert.equal(isSetupTask(["setup"]), true);
   assert.equal(isSetupTask(["onboard"]), true);
   assert.equal(isSetupTask(["setup", "my", "project"]), false);
+});
+
+test("cli parser reads flags and task text", () => {
+  const args = parseArgs([
+    "--provider",
+    "ollama",
+    "--allow-shell",
+    "--telegram-allowed-chat",
+    "123,456",
+    "list",
+    "files"
+  ]);
+  assert.equal(args.provider, "ollama");
+  assert.equal(args.allowShell, true);
+  assert.deepEqual(args.telegramAllowedChat, ["123", "456"]);
+  assert.deepEqual(args.task, ["list", "files"]);
 });
 
 test("setup writes config and starter skill", async () => {

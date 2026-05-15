@@ -6,6 +6,7 @@ import { TelegramChannel, TelegramError } from "./channels/telegram.js";
 import { ButterclawConfig, configPath, loadConfig, saveConfig } from "./config.js";
 import { runSetup } from "./setup.js";
 import { buildDefaultRegistry } from "./tools.js";
+import { splitCsv } from "./util.js";
 
 interface Args {
   task: string[];
@@ -84,83 +85,46 @@ export function parseArgs(argv: string[]): Args {
     telegramOnce: false,
     telegramAllowedChat: []
   };
+
+  const valueOptions: Record<string, (value: string) => void> = {
+    "--config": (value) => (args.config = value),
+    "--provider": (value) => (args.provider = value as ButterclawConfig["provider"]),
+    "--model": (value) => (args.model = value),
+    "--base-url": (value) => (args.baseUrl = value),
+    "--api-key-env": (value) => (args.apiKeyEnv = value),
+    "--workspace": (value) => (args.workspace = value),
+    "--max-steps": (value) => (args.maxSteps = Number(value)),
+    "--max-context-chars": (value) => (args.maxContextChars = Number(value)),
+    "--telegram-token-env": (value) => (args.telegramTokenEnv = value),
+    "--telegram-base-url": (value) => (args.telegramBaseUrl = value),
+    "--telegram-allowed-chat": (value) => args.telegramAllowedChat.push(...splitCsv(value)),
+    "--telegram-timeout": (value) => (args.telegramTimeout = Number(value)),
+    "--telegram-idle-sleep": (value) => (args.telegramIdleSleep = Number(value))
+  };
+  const flagOptions: Record<string, () => void> = {
+    "--setup": () => (args.setup = true),
+    "--init-config": () => (args.initConfig = true),
+    "--show-tools": () => (args.showTools = true),
+    "--version": () => (args.version = true),
+    "--allow-shell": () => (args.allowShell = true),
+    "--allow-outside-workspace": () => (args.allowOutsideWorkspace = true),
+    "--telegram-poll": () => (args.telegramPoll = true),
+    "--telegram-once": () => (args.telegramOnce = true)
+  };
+
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    const next = () => {
+    if (arg === "--help" || arg === "-h") {
+      args.help = true;
+      return args;
+    }
+    if (arg in valueOptions) {
       index += 1;
-      return argv[index] ?? "";
-    };
-    switch (arg) {
-      case "--config":
-        args.config = next();
-        break;
-      case "--setup":
-        args.setup = true;
-        break;
-      case "--init-config":
-        args.initConfig = true;
-        break;
-      case "--show-tools":
-        args.showTools = true;
-        break;
-      case "--version":
-        args.version = true;
-        break;
-      case "--provider":
-        args.provider = next() as ButterclawConfig["provider"];
-        break;
-      case "--model":
-        args.model = next();
-        break;
-      case "--base-url":
-        args.baseUrl = next();
-        break;
-      case "--api-key-env":
-        args.apiKeyEnv = next();
-        break;
-      case "--workspace":
-        args.workspace = next();
-        break;
-      case "--max-steps":
-        args.maxSteps = Number(next());
-        break;
-      case "--max-context-chars":
-        args.maxContextChars = Number(next());
-        break;
-      case "--allow-shell":
-        args.allowShell = true;
-        break;
-      case "--allow-outside-workspace":
-        args.allowOutsideWorkspace = true;
-        break;
-      case "--telegram-poll":
-        args.telegramPoll = true;
-        break;
-      case "--telegram-once":
-        args.telegramOnce = true;
-        break;
-      case "--telegram-token-env":
-        args.telegramTokenEnv = next();
-        break;
-      case "--telegram-base-url":
-        args.telegramBaseUrl = next();
-        break;
-      case "--telegram-allowed-chat":
-        args.telegramAllowedChat.push(...expandCsv(next()));
-        break;
-      case "--telegram-timeout":
-        args.telegramTimeout = Number(next());
-        break;
-      case "--telegram-idle-sleep":
-        args.telegramIdleSleep = Number(next());
-        break;
-      case "--help":
-      case "-h":
-        args.help = true;
-        return args;
-      default:
-        args.task.push(arg);
-        break;
+      valueOptions[arg](argv[index] ?? "");
+    } else if (arg in flagOptions) {
+      flagOptions[arg]();
+    } else {
+      args.task.push(arg);
     }
   }
   return args;
@@ -224,13 +188,6 @@ async function repl(config: ButterclawConfig): Promise<number> {
   } finally {
     rl.close();
   }
-}
-
-function expandCsv(value: string): string[] {
-  return value
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
 }
 
 function printHelp(): void {

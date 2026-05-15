@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import path from "node:path";
+import { compact, ensureParent, scoreText, termsFrom } from "./util.js";
 
 interface MemoryItem {
   role: string;
@@ -9,7 +9,7 @@ interface MemoryItem {
 
 export class LocalMemory {
   constructor(private readonly memoryPath: string) {
-    fs.mkdirSync(path.dirname(memoryPath), { recursive: true });
+    ensureParent(memoryPath);
   }
 
   add(role: string, content: string): void {
@@ -24,7 +24,7 @@ export class LocalMemory {
     if (!fs.existsSync(this.memoryPath)) {
       return [];
     }
-    const terms = new Set((query.match(/[a-zA-Z0-9_]{3,}/g) ?? []).map((term) => term.toLowerCase()));
+    const terms = termsFrom(query);
     const scored: Array<{ score: number; index: number; item: MemoryItem }> = [];
     const lines = fs.readFileSync(this.memoryPath, "utf8").split(/\r?\n/);
     lines.forEach((line, index) => {
@@ -33,8 +33,7 @@ export class LocalMemory {
       }
       try {
         const item = JSON.parse(line) as MemoryItem;
-        const haystack = item.content.toLowerCase();
-        const score = [...terms].filter((term) => haystack.includes(term)).length;
+        const score = scoreText(item.content, terms);
         if (score > 0) {
           scored.push({ score, index, item });
         }
@@ -48,9 +47,3 @@ export class LocalMemory {
       .map(({ item }) => `${item.role}: ${compact(item.content)}`);
   }
 }
-
-function compact(text: string, maxChars = 240): string {
-  const cleaned = text.replace(/\s+/g, " ").trim();
-  return cleaned.length > maxChars ? `${cleaned.slice(0, maxChars - 3)}...` : cleaned;
-}
-

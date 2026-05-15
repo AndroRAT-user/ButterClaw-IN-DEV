@@ -2,6 +2,7 @@ import childProcess from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { ButterclawConfig } from "./config.js";
+import { ensureParent, truncate } from "./util.js";
 
 export interface ToolResult {
   ok: boolean;
@@ -83,7 +84,7 @@ class WorkspaceTools {
     }
     let text = fs.readFileSync(resolved, "utf8");
     if (text.length > maxChars) {
-      text = `${text.slice(0, maxChars - 35)}\n...[truncated by Butterclaw]...`;
+      text = truncate(text, maxChars, "\n...[truncated by Butterclaw]...");
     }
     return { ok: true, output: text };
   };
@@ -92,7 +93,7 @@ class WorkspaceTools {
     const resolved = this.resolve(String(args.path ?? ""));
     const content = String(args.content ?? "");
     const mode = String(args.mode ?? "overwrite");
-    fs.mkdirSync(path.dirname(resolved), { recursive: true });
+    ensureParent(resolved);
     if (mode === "append") {
       fs.appendFileSync(resolved, content, "utf8");
     } else if (mode === "overwrite") {
@@ -154,7 +155,7 @@ class WorkspaceTools {
       output = `exit code ${completed.status ?? 0}`;
     }
     if (output.length > 20_000) {
-      output = `${output.slice(0, 19_965)}\n...[truncated by Butterclaw]...`;
+      output = truncate(output, 20_000, "\n...[truncated by Butterclaw]...");
     }
     return { ok: completed.status === 0, output };
   };
@@ -192,36 +193,39 @@ class WorkspaceTools {
 export function buildDefaultRegistry(config: ButterclawConfig): ToolRegistry {
   const workspace = new WorkspaceTools(config);
   const registry = new ToolRegistry();
-  registry.register({
-    name: "list_dir",
-    description: "List files and folders in the workspace",
-    args: { path: "relative directory path, default '.'" },
-    handler: workspace.listDir
-  });
-  registry.register({
-    name: "read_file",
-    description: "Read a UTF-8 text file from the workspace",
-    args: { path: "relative file path", maxChars: "optional character limit" },
-    handler: workspace.readFile
-  });
-  registry.register({
-    name: "write_file",
-    description: "Write or append a UTF-8 text file in the workspace",
-    args: { path: "relative file path", content: "text", mode: "overwrite or append" },
-    handler: workspace.writeFile
-  });
-  registry.register({
-    name: "search_files",
-    description: "Search file names and text content in the workspace",
-    args: { query: "text to find", path: "relative directory", maxMatches: "optional limit" },
-    handler: workspace.searchFiles
-  });
-  registry.register({
-    name: "run_shell",
-    description: "Run a shell command in the workspace when explicitly enabled",
-    args: { command: "command string", timeout: "seconds, capped by config" },
-    handler: workspace.runShell
-  });
+  const specs: ToolSpec[] = [
+    {
+      name: "list_dir",
+      description: "List files and folders in the workspace",
+      args: { path: "relative directory path, default '.'" },
+      handler: workspace.listDir
+    },
+    {
+      name: "read_file",
+      description: "Read a UTF-8 text file from the workspace",
+      args: { path: "relative file path", maxChars: "optional character limit" },
+      handler: workspace.readFile
+    },
+    {
+      name: "write_file",
+      description: "Write or append a UTF-8 text file in the workspace",
+      args: { path: "relative file path", content: "text", mode: "overwrite or append" },
+      handler: workspace.writeFile
+    },
+    {
+      name: "search_files",
+      description: "Search file names and text content in the workspace",
+      args: { query: "text to find", path: "relative directory", maxMatches: "optional limit" },
+      handler: workspace.searchFiles
+    },
+    {
+      name: "run_shell",
+      description: "Run a shell command in the workspace when explicitly enabled",
+      args: { command: "command string", timeout: "seconds, capped by config" },
+      handler: workspace.runShell
+    }
+  ];
+  specs.forEach((spec) => registry.register(spec));
   return registry;
 }
 

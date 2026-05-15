@@ -1,9 +1,10 @@
 import { ButterclawConfig } from "./config.js";
 import { LocalMemory } from "./memory.js";
-import { buildProvider, Message, Provider, ProviderResponse } from "./providers.js";
+import { buildProvider, Message, Provider } from "./providers.js";
 import { SkillLoader } from "./skills.js";
 import { buildDefaultRegistry, ToolRegistry } from "./tools.js";
 import { UsageTracker } from "./usage.js";
+import { isRecord } from "./util.js";
 
 export interface AgentRun {
   answer: string;
@@ -121,10 +122,7 @@ export function parseToolCall(content: string): ToolCall | null {
   try {
     const parsed = JSON.parse(text) as { tool?: unknown; name?: unknown; args?: unknown };
     const tool = typeof parsed.tool === "string" ? parsed.tool : typeof parsed.name === "string" ? parsed.name : null;
-    if (!tool) {
-      return null;
-    }
-    return { tool, args: isRecord(parsed.args) ? parsed.args : {} };
+    return tool ? { tool, args: isRecord(parsed.args) ? parsed.args : {} } : null;
   } catch {
     return null;
   }
@@ -146,9 +144,5 @@ export function trimMessages(messages: Message[], maxChars: number): Message[] {
     running += message.content.length;
   }
   return trimmed;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

@@ -1,6 +1,6 @@
-import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { readJsonFile, writeJsonFile } from "./util.js";
 
 export type ProviderName = "mock" | "ollama" | "openai-compatible";
 export type ShellMode = "deny" | "allow";
@@ -88,15 +88,10 @@ export function normalizeConfig(config: ButterclawConfig): ButterclawConfig {
 
 export function loadConfig(customPath?: string): ButterclawConfig {
   const target = customPath ?? configPath();
-  if (!fs.existsSync(target)) {
-    return defaultConfig();
-  }
-  const raw = JSON.parse(fs.readFileSync(target, "utf8")) as Partial<ButterclawConfig>;
-  return defaultConfig(raw);
+  return defaultConfig(readJsonFile<Partial<ButterclawConfig>>(target, {}));
 }
 
 export function saveConfig(config: ButterclawConfig, customPath?: string): void {
   const target = customPath ?? configPath();
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, JSON.stringify(normalizeConfig(config), null, 2), "utf8");
+  writeJsonFile(target, normalizeConfig(config));
 }
