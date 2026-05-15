@@ -1,22 +1,22 @@
 # Telegram Channel
 
 Butterclaw's first chat channel is a small Telegram long-polling adapter. It
-uses the official Bot API directly through Python's standard library, so there
-are no extra runtime dependencies.
+uses the official Bot API directly through Node's built-in `fetch`, so there
+are no runtime dependencies for Telegram.
 
 ## Setup
 
 1. Create a bot with `@BotFather` in Telegram.
 2. Set the token in your shell:
 
-```powershell
-$env:TELEGRAM_BOT_TOKEN = "123456:your-token"
+```cmd
+set TELEGRAM_BOT_TOKEN=123456:your-token
 ```
 
 3. Start Butterclaw:
 
-```powershell
-python -m butterclaw --telegram-poll --provider ollama --model llama3.2:3b --telegram-allowed-chat 123456789
+```cmd
+npm start -- --telegram-poll --provider ollama --model llama3.2:3b --telegram-allowed-chat 123456789
 ```
 
 ## Finding Your Chat ID
@@ -29,7 +29,7 @@ After that, restart with the allowed chat ID.
 
 - `/start` or `/help`: show a short status message.
 - `/tools`: list available local tools.
-- `/budget`: show today's estimated spend.
+- `/usage`: show today's local token/request usage.
 - Any other text: send the task to the Butterclaw agent.
 
 ## Safety

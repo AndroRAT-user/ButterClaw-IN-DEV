@@ -1,18 +1,17 @@
 {
   "provider": "mock",
-  "model": "mock-cheap",
-  "base_url": null,
-  "api_key_env": "BUTTERCLAW_API_KEY",
-  "max_steps": 6,
-  "max_context_chars": 12000,
-  "daily_budget_usd": 0.25,
-  "shell_mode": "deny",
-  "allow_outside_workspace": false,
-  "cheap_mode": true,
-  "telegram_token_env": "TELEGRAM_BOT_TOKEN",
-  "telegram_base_url": "https://api.telegram.org",
-  "telegram_allowed_chats": [],
-  "telegram_poll_timeout_seconds": 25,
-  "telegram_idle_sleep_seconds": 1.0,
-  "telegram_max_reply_chars": 3900
+  "model": "mock-local",
+  "baseUrl": null,
+  "apiKeyEnv": "BUTTERCLAW_API_KEY",
+  "maxSteps": 6,
+  "maxContextChars": 12000,
+  "shellMode": "deny",
+  "allowOutsideWorkspace": false,
+  "telegramTokenEnv": "TELEGRAM_BOT_TOKEN",
+  "telegramBaseUrl": "https://api.telegram.org",
+  "telegramAllowedChats": [],
+  "telegramPollTimeoutSeconds": 25,
+  "telegramIdleSleepSeconds": 1,
+  "telegramMaxReplyChars": 3900
 }
+

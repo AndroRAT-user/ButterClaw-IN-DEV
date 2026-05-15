@@ -1,2 +1,0 @@
-"""Channel adapters for Butterclaw."""
-

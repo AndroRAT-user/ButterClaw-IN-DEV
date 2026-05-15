@@ -1,20 +1,20 @@
 # Butterclaw Roadmap
 
 Butterclaw is aiming for OpenClaw-grade usefulness with a smaller footprint.
-The target is not to copy OpenClaw. The target is to give budget users the same
-core powers with fewer moving pieces.
+The target is not to copy OpenClaw. The target is to give people the same core
+powers with fewer moving pieces.
 
-## Milestone 0: Tiny Useful Core
+## Milestone 0: Lightweight Core
 
-- CLI agent loop
+- TypeScript Node CLI
 - first-run setup/onboarding command
 - mock, Ollama, and OpenAI-compatible providers
 - workspace-confined file tools
 - optional shell tool
 - JSONL memory
 - Markdown skills
-- budget guard
 - Telegram long-polling channel
+- local usage tracking
 - unit tests
 
 ## Milestone 1: Better Local Agent Experience
@@ -24,7 +24,7 @@ core powers with fewer moving pieces.
 - richer planning traces
 - per-tool permissions
 - skill metadata with required permissions
-- prompt compaction for small-context models
+- prompt compaction for smaller-context models
 - model profiles for low-RAM local models
 
 ## Milestone 2: Lightweight Gateway
@@ -51,16 +51,16 @@ core powers with fewer moving pieces.
 - signed or checksummed skill installs
 - permission review before activation
 - only load relevant skills into the model context
-- small curated skill registry focused on common budget-user workflows
+- small curated skill registry focused on common lightweight workflows
 
-## Milestone 5: "Just As Good" Bar
+## Milestone 5: OpenClaw-Grade Usefulness
 
 Butterclaw should feel competitive when it can:
 
 - complete multi-step local tasks reliably
 - remember project and user preferences across sessions
 - use tools without wasting context
-- operate under explicit budget caps
 - run well on 4 GB to 8 GB RAM machines
 - keep risky actions behind human-controlled permissions
-- support cheap cloud APIs and small local models equally well
+- support hosted APIs and local models equally well
+

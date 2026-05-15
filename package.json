@@ -1,0 +1,32 @@
+{
+  "name": "butterclaw",
+  "version": "0.2.0",
+  "description": "Lightweight local agent runtime.",
+  "type": "module",
+  "bin": {
+    "butterclaw": "./dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test \"dist/test/**/*.test.js\"",
+    "start": "node dist/src/cli.js",
+    "setup": "node dist/src/cli.js setup"
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "ollama",
+    "local-first",
+    "automation",
+    "typescript"
+  ],
+  "author": "Butterclaw contributors",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "typescript": "^5.8.3"
+  }
+}

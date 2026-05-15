@@ -1,7 +1,7 @@
 # OpenClaw Parity Target
 
 Butterclaw is a clean-room project, not a fork. These notes translate the
-public OpenClaw product shape into a lightweight target for budget users.
+public OpenClaw product shape into a lightweight TypeScript target.
 
 Public OpenClaw docs describe a local, self-hosted agent platform with many
 channels, thousands of skills, model-agnostic providers, privacy-first storage,
@@ -19,10 +19,11 @@ channels and the chosen AI model, with local session state and tool execution:
 
 | Area | OpenClaw-shaped capability | Butterclaw status |
 | --- | --- | --- |
+| Language/runtime | TypeScript/npm ecosystem | Started: TypeScript Node CLI |
 | Local-first runtime | Own data and tool execution locally | Started: CLI runtime, local files, local memory |
 | First-run setup | Guided install and configuration | Started: interactive setup command |
 | Model agnostic | Switch providers and models | Started: mock, Ollama, OpenAI-compatible APIs |
-| Low-end hardware | Small context and minimal services | Started: no runtime deps, short prompts, budget caps |
+| Low-end hardware | Small context and minimal services | Started: no runtime dependencies, short prompts |
 | Skills | Reusable workflows | Started: Markdown skill loading |
 | Memory | Persistent context | Started: JSONL local memory with relevance search |
 | Tools | Files, shell, APIs, browser, apps | Started: workspace files and opt-in shell |
@@ -34,9 +35,10 @@ channels and the chosen AI model, with local session state and tool execution:
 
 ## Design Rules
 
-- Keep the core package dependency-free.
+- Keep the core package small.
 - Load only relevant memory and skills into context.
-- Make every expensive feature optional.
-- Prefer plain files and SQLite over servers.
+- Make every heavier feature optional.
+- Prefer plain files and SQLite over server stacks.
 - Deny risky tools by default.
-- Make cheap/local providers first-class, not fallback paths.
+- Make hosted APIs and local models first-class.
+

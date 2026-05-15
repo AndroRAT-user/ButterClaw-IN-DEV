@@ -31,7 +31,7 @@ if (-not $gh) {
 
 & $gh auth status
 
-$flags = @("repo", "create", "butterclaw", "--source", ".", "--remote", "origin", "--push", "--description", "Tiny budget-first local agent runtime for low-end PCs.")
+$flags = @("repo", "create", "butterclaw", "--source", ".", "--remote", "origin", "--push", "--description", "Lightweight local agent runtime.")
 if ($Visibility -eq "public") {
     $flags += "--public"
 } else {

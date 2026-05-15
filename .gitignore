@@ -5,10 +5,10 @@ __pycache__/
 .mypy_cache/
 .venv/
 venv/
-build/
+node_modules/
 dist/
+build/
 *.egg-info/
 .env
 .butterclaw/
 usage-*.json
-
