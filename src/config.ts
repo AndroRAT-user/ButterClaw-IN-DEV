@@ -49,7 +49,7 @@ export function defaultConfig(overrides: Partial<ButterclawConfig> = {}): Butter
     provider: "mock",
     model: "mock-local",
     baseUrl: null,
-    apiKeyEnv: "BUTTERCLAW_API_KEY",
+    apiKeyEnv: "MODEL_PROVIDER_API_KEY",
     workspace: process.cwd(),
     configDir,
     maxSteps: 6,
@@ -100,4 +100,3 @@ export function saveConfig(config: ButterclawConfig, customPath?: string): void 
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, JSON.stringify(normalizeConfig(config), null, 2), "utf8");
 }
-

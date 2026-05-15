@@ -2,7 +2,7 @@
   "provider": "mock",
   "model": "mock-local",
   "baseUrl": null,
-  "apiKeyEnv": "BUTTERCLAW_API_KEY",
+  "apiKeyEnv": "MODEL_PROVIDER_API_KEY",
   "maxSteps": 6,
   "maxContextChars": 12000,
   "shellMode": "deny",
@@ -14,4 +14,3 @@
   "telegramIdleSleepSeconds": 1,
   "telegramMaxReplyChars": 3900
 }
-

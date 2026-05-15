@@ -47,7 +47,8 @@ export async function runSetup(
 
     if (config.provider === "openai-compatible") {
       config.baseUrl = await prompt(inputFunc, "OpenAI-compatible base URL", config.baseUrl ?? "https://api.openai.com/v1");
-      config.apiKeyEnv = await prompt(inputFunc, "API key environment variable", config.apiKeyEnv);
+      outputFunc("Butterclaw does not issue API keys. Use a key from your chosen model provider.");
+      config.apiKeyEnv = await prompt(inputFunc, "Environment variable for your model provider key", config.apiKeyEnv);
     } else if (config.provider === "ollama") {
       config.baseUrl = await prompt(inputFunc, "Ollama base URL", config.baseUrl ?? "http://localhost:11434");
     }
@@ -81,7 +82,7 @@ export async function runSetup(
       outputFunc(`  butterclaw --config "${targetPath}" --telegram-poll --telegram-allowed-chat YOUR_CHAT_ID`);
     } else if (config.provider === "openai-compatible") {
       outputFunc("");
-      outputFunc("Before using the API provider:");
+      outputFunc("Before using the model provider:");
       outputFunc(`  set ${config.apiKeyEnv}=your-api-key`);
     }
     return 0;

@@ -57,7 +57,7 @@ butterclaw --provider ollama --model llama3.2:3b "summarize README.md"
 Use an OpenAI-compatible endpoint:
 
 ```cmd
-set BUTTERCLAW_API_KEY=your-api-key
+set MODEL_PROVIDER_API_KEY=your-provider-api-key
 butterclaw --provider openai-compatible --base-url https://api.openai.com/v1 --model gpt-4.1-mini "make a plan for my project"
 ```
 
@@ -102,7 +102,8 @@ butterclaw --init-config
 
 Config defaults to `%APPDATA%\butterclaw\config.json` on Windows and
 `~/.config/butterclaw/config.json` elsewhere. CLI flags override config values.
-Secrets stay in environment variables.
+Secrets stay in environment variables. Butterclaw does not issue its own API
+key; use the key from your chosen model provider.
 
 ## Tool Call Protocol
 

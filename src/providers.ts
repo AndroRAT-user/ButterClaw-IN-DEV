@@ -69,7 +69,7 @@ export class OpenAICompatibleProvider implements Provider {
 
   async complete(messages: Message[]): Promise<ProviderResponse> {
     if (!this.apiKey) {
-      throw new ProviderError("Missing API key. Set the configured apiKeyEnv variable.");
+      throw new ProviderError("Missing provider API key. Set the environment variable named in apiKeyEnv.");
     }
     const raw = await postJson(
       `${this.baseUrl.replace(/\/$/, "")}/chat/completions`,
@@ -128,4 +128,3 @@ async function postJson(
     throw new ProviderError(`Provider returned non-JSON response: ${text.slice(0, 500)}`);
   }
 }
-

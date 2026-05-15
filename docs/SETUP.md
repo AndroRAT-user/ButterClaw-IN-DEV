@@ -36,8 +36,8 @@ For a hosted API, choose:
 - provider: `openai-compatible`
 - model: the model you want to use
 
-Butterclaw stores the API key environment variable name in config, not the
-secret itself.
+Butterclaw does not issue its own API key. It stores the environment variable
+name for your chosen model provider's key, not the secret itself.
 
 ## Telegram During Setup
 
