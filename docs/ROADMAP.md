@@ -9,6 +9,8 @@ powers with fewer moving pieces.
 - TypeScript Node CLI
 - polished terminal UI
 - first-run setup/onboarding command
+- doctor diagnostics
+- local backups
 - mock, Ollama, and OpenAI-compatible providers
 - saved agent profiles
 - saved agent teams

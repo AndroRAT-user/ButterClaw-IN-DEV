@@ -32,10 +32,14 @@ export function statusPill(ok: boolean): string {
 
 export function panel(title: string, lines: string[]): string {
   const content = lines.length ? lines : [""];
-  const width = Math.min(88, Math.max(34, title.length + 4, ...content.map((line) => visibleLength(line) + 2)));
+  const maxWidth = Math.max(34, Math.min(120, (process.stdout.columns || 100) - 2));
+  const width = Math.min(maxWidth, Math.max(34, title.length + 4, ...content.map((line) => visibleLength(line) + 2)));
   const top = `+${"-".repeat(width)}+`;
   const titleLine = `| ${paint("accent", title).padEnd(width + (paint("accent", title).length - title.length) - 1)}|`;
-  const body = content.map((line) => `| ${line}${" ".repeat(Math.max(0, width - visibleLength(line) - 1))}|`);
+  const body = content.map((line) => {
+    const fitted = fitVisible(line, width - 1);
+    return `| ${fitted}${" ".repeat(Math.max(0, width - visibleLength(fitted) - 1))}|`;
+  });
   return [top, titleLine, top, ...body, top].join("\n");
 }
 
@@ -58,7 +62,8 @@ export function renderHelp(version: string): string {
   return panel("Butterclaw CLI", [
     `${paint("accent", version)}  lightweight local-first agent runtime`,
     "",
-    commandRow(["setup", "agent", "team", "skill", "session", "google"]),
+    commandRow(["setup", "doctor", "backup", "agent"]),
+    commandRow(["team", "skill", "session", "google"]),
     "",
     "Usage:",
     "  butterclaw [options] [task...]",
@@ -99,6 +104,8 @@ export function renderHelp(version: string): string {
     "  butterclaw skill create <name> --description <text> --body <text>",
     "  butterclaw session list",
     "  butterclaw session show <name>",
+    "  butterclaw doctor",
+    "  butterclaw backup create [path]",
     "  butterclaw google login",
     "  butterclaw google status",
     "  butterclaw google logout"
@@ -107,4 +114,27 @@ export function renderHelp(version: string): string {
 
 function visibleLength(text: string): number {
   return text.replace(/\x1b\[[0-9;]*m/g, "").length;
+}
+
+function fitVisible(text: string, maxVisible: number): string {
+  if (visibleLength(text) <= maxVisible) {
+    return text;
+  }
+  const marker = "...";
+  const limit = Math.max(0, maxVisible - marker.length);
+  let visible = 0;
+  let output = "";
+  for (let index = 0; index < text.length && visible < limit; index += 1) {
+    if (text[index] === "\x1b") {
+      const end = text.indexOf("m", index);
+      if (end >= 0) {
+        output += text.slice(index, end + 1);
+        index = end;
+        continue;
+      }
+    }
+    output += text[index];
+    visible += 1;
+  }
+  return `${output}${marker}`;
 }

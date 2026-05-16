@@ -12,6 +12,8 @@ Telegram channel without requiring a large service stack.
 - TypeScript Node CLI
 - polished terminal UI with panels, status pills, and button-like command labels
 - first-run setup command
+- doctor diagnostics for setup, provider, workspace, and OAuth state
+- local JSON backup for agents, teams, skills, sessions, and memory
 - provider adapters for `mock`, `ollama`, and OpenAI-compatible chat APIs
 - saved agent profiles with custom instructions
 - saved agent teams that can delegate one task to several specialists
@@ -66,6 +68,13 @@ Resume a named working session:
 ```cmd
 butterclaw --session butter-build "remember the current goal and inspect the workspace"
 butterclaw --session butter-build "continue from where we left off"
+```
+
+Check and back up local state:
+
+```cmd
+butterclaw doctor
+butterclaw backup create
 ```
 
 Create a skill:
@@ -151,6 +160,12 @@ Create a starter config without prompts:
 butterclaw --init-config
 ```
 
+Check your setup at any time:
+
+```cmd
+butterclaw doctor
+```
+
 Config defaults to `%APPDATA%\butterclaw\config.json` on Windows and
 `~/.config/butterclaw/config.json` elsewhere. CLI flags override config values.
 Secrets stay in environment variables. Butterclaw does not issue its own API
@@ -185,6 +200,14 @@ butterclaw --session release-work "check what is left for release"
 butterclaw session list
 butterclaw session show release-work
 butterclaw session clear release-work
+```
+
+Backups are local JSON files that include agents, teams, skills, sessions, and
+memory. OAuth token state and usage files are excluded.
+
+```cmd
+butterclaw backup create
+butterclaw backup create C:\path\to\butterclaw-backup.json
 ```
 
 Skills are local Markdown files that Butterclaw loads when they match the task.

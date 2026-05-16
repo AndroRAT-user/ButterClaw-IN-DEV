@@ -24,6 +24,12 @@ The setup flow:
 - writes a tiny starter skill
 - prints the command to run next
 
+After setup, run a quick diagnostic:
+
+```cmd
+butterclaw doctor
+```
+
 ## Suggested Lightweight Setup
 
 For a lightweight local setup, choose:
@@ -90,3 +96,12 @@ butterclaw team list
 butterclaw session list
 butterclaw session show release-work
 ```
+
+Create a local backup before large changes:
+
+```cmd
+butterclaw backup create
+```
+
+The backup includes agents, teams, skills, sessions, and memory. OAuth token
+state and usage files are excluded.

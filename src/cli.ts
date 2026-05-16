@@ -3,14 +3,16 @@ import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { ButterclawAgent } from "./agent.js";
 import { AgentProfile, AgentStore, applyAgentProfile } from "./agents.js";
+import { createBackup } from "./backup.js";
 import { TelegramChannel, TelegramError } from "./channels/telegram.js";
 import { ButterclawConfig, configPath, loadConfig, saveConfig } from "./config.js";
+import { doctorChecks } from "./doctor.js";
 import { GOOGLE_WORKSPACE_SCOPES, googleStatus, loginGoogle, logoutGoogle } from "./google.js";
 import { SessionStore } from "./sessions.js";
 import { runSetup } from "./setup.js";
 import { SkillLoader } from "./skills.js";
 import { TeamStore } from "./teams.js";
-import { button, renderCollection, renderHelp, successLine } from "./ui.js";
+import { button, panel, renderCollection, renderHelp, statusPill, successLine } from "./ui.js";
 import { splitCsv } from "./util.js";
 
 interface Args {
@@ -56,6 +58,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   const configFile = args.config ?? configPath();
   const config = loadConfig(args.config);
+  applyOverrides(config, args);
   const command = args.task[0]?.toLowerCase();
   if (command === "agent" || command === "agents") {
     return handleCommand(() => runAgentCommand(config, args.task.slice(1)));
@@ -69,6 +72,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === "session" || command === "sessions") {
     return handleCommand(() => runSessionCommand(config, args.task.slice(1)));
   }
+  if (command === "doctor" || command === "check" || command === "diagnose") {
+    return handleAsyncCommand(() => runDoctorCommand(config));
+  }
+  if (command === "backup" || command === "export") {
+    return handleCommand(() => runBackupCommand(config, args.task.slice(1)));
+  }
   if (command === "google") {
     return handleAsyncCommand(() => runGoogleCommand(config, args.task.slice(1)));
   }
@@ -80,7 +89,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (agentProfile) {
     applyAgentProfile(config, agentProfile);
   }
-  applyOverrides(config, args);
 
   if (args.setup || isSetupTask(args.task)) {
     return runSetup(config, configFile);
@@ -373,6 +381,33 @@ export function runSessionCommand(config: ButterclawConfig, argv: string[], outp
     return 0;
   }
   throw new Error("Usage: butterclaw session list | show <name> | clear <name>");
+}
+
+export async function runDoctorCommand(config: ButterclawConfig, outputFunc = console.log): Promise<number> {
+  const checks = await doctorChecks(config);
+  outputFunc(
+    panel(
+      "Doctor",
+      checks.map((check) => `${statusPill(check.ok)} ${check.label}: ${check.detail}`)
+    )
+  );
+  return 0;
+}
+
+export function runBackupCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): number {
+  const command = argv[0]?.toLowerCase() ?? "create";
+  if (command === "create") {
+    const result = createBackup(config, argv[1]);
+    outputFunc(
+      panel("Backup", [
+        successLine(`Saved ${result.files} local file(s)`),
+        `Path: ${result.path}`,
+        `Excluded: ${result.excluded.join(", ")}`
+      ])
+    );
+    return 0;
+  }
+  throw new Error("Usage: butterclaw backup create [path]");
 }
 
 export async function runGoogleCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): Promise<number> {

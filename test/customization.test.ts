@@ -5,10 +5,11 @@ import path from "node:path";
 import test from "node:test";
 import { ButterclawAgent } from "../src/agent.js";
 import { AgentProfile, AgentStore } from "../src/agents.js";
-import { runAgentCommand, runSessionCommand, runSkillCommand, runTeamCommand } from "../src/cli.js";
+import { runAgentCommand, runBackupCommand, runDoctorCommand, runSessionCommand, runSkillCommand, runTeamCommand } from "../src/cli.js";
 import { defaultConfig } from "../src/config.js";
 import { Message, Provider, ProviderResponse } from "../src/providers.js";
 import { SessionStore } from "../src/sessions.js";
+import { createLocalFiles } from "../src/setup.js";
 import { TeamStore } from "../src/teams.js";
 
 class RecordingProvider implements Provider {
@@ -117,6 +118,47 @@ test("session command shows and clears saved transcripts", () => {
   assert.equal(runSessionCommand(config, ["clear", "build-log"], (line) => lines.push(line)), 0);
   assert.match(lines.join("\n"), /Cleared session build-log/);
   assert.deepEqual(store.read("build-log"), []);
+});
+
+test("doctor command reports local runtime health", async () => {
+  const config = tempConfig();
+  createLocalFiles(config);
+  const lines: string[] = [];
+
+  assert.equal(await runDoctorCommand(config, (line) => lines.push(line)), 0);
+
+  const output = lines.join("\n");
+  assert.match(output, /Doctor/);
+  assert.match(output, /Node\.js/);
+  assert.match(output, /Workspace/);
+  assert.match(output, /Provider: mock provider/);
+  assert.match(output, /\[WARN\] Google OAuth/);
+});
+
+test("backup command saves local state without OAuth tokens", () => {
+  const config = tempConfig();
+  createLocalFiles(config);
+  new AgentStore(config.agentsDir).create({ name: "debugger", description: "Finds bugs", instructions: "Debug carefully." });
+  new TeamStore(config.teamsDir).create({ name: "triage", agents: ["debugger"], description: "Triage team" });
+  fs.writeFileSync(path.join(config.skillsDir, "release.md"), "# release\n", "utf8");
+  new SessionStore(config.sessionsDir).append("build", "user", "ship it");
+  fs.appendFileSync(config.memoryPath, JSON.stringify({ role: "user", content: "remember me" }) + "\n", "utf8");
+  fs.writeFileSync(config.googleOAuthPath, JSON.stringify({ refresh_token: "secret-refresh-token" }), "utf8");
+  const backupPath = path.join(config.workspace, "backup.json");
+  const lines: string[] = [];
+
+  assert.equal(runBackupCommand(config, ["create", backupPath], (line) => lines.push(line)), 0);
+
+  const backupText = fs.readFileSync(backupPath, "utf8");
+  const backup = JSON.parse(backupText) as { files: Array<{ path: string; content: string }>; excluded: string[] };
+  assert.match(lines.join("\n"), /Saved/);
+  assert.equal(backup.files.some((file) => file.path === "agents/debugger.json"), true);
+  assert.equal(backup.files.some((file) => file.path === "teams/triage.json"), true);
+  assert.equal(backup.files.some((file) => file.path === "skills/release.md"), true);
+  assert.equal(backup.files.some((file) => file.path === "sessions/build.jsonl"), true);
+  assert.equal(backup.files.some((file) => file.path === "memory.jsonl"), true);
+  assert.equal(backupText.includes("secret-refresh-token"), false);
+  assert.equal(backup.excluded.includes("google-oauth.json"), true);
 });
 
 test("active agent profile is included in the system prompt", async () => {
