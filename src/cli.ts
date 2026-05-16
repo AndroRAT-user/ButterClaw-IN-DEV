@@ -10,6 +10,7 @@ import { SessionStore } from "./sessions.js";
 import { runSetup } from "./setup.js";
 import { SkillLoader } from "./skills.js";
 import { TeamStore } from "./teams.js";
+import { button, renderCollection, renderHelp, successLine } from "./ui.js";
 import { splitCsv } from "./util.js";
 
 interface Args {
@@ -86,7 +87,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   if (args.initConfig) {
     saveConfig(config, configFile);
-    console.log(`Wrote config to ${configFile}`);
+    console.log(successLine(`Wrote config to ${configFile}`));
     return 0;
   }
   if (args.showTools) {
@@ -242,7 +243,13 @@ export function runAgentCommand(config: ButterclawConfig, argv: string[], output
   const command = argv[0]?.toLowerCase() ?? "list";
   if (command === "list") {
     const agents = store.list();
-    outputFunc(agents.length ? agents.map((agent) => `${agent.name}: ${agent.description}`).join("\n") : "No agents yet.");
+    outputFunc(
+      renderCollection(
+        "Agents",
+        agents.map((agent) => `${button("agent")} ${agent.name}: ${agent.description}`),
+        "No agents yet."
+      )
+    );
     return 0;
   }
   if (command === "show") {
@@ -266,7 +273,7 @@ export function runAgentCommand(config: ButterclawConfig, argv: string[], output
       skills: parsed.values.skills ? splitCsv(parsed.values.skills) : undefined,
       overwrite: parsed.flags.has("force")
     });
-    outputFunc(`Created agent ${agent.name} in ${config.agentsDir}`);
+    outputFunc(successLine(`Created agent ${agent.name} in ${config.agentsDir}`));
     return 0;
   }
   throw new Error("Usage: butterclaw agent list | show <name> | create <name> [--description text] [--instructions text] [--model name] [--provider name] [--force]");
@@ -277,7 +284,13 @@ export function runTeamCommand(config: ButterclawConfig, argv: string[], outputF
   const command = argv[0]?.toLowerCase() ?? "list";
   if (command === "list") {
     const teams = store.list();
-    outputFunc(teams.length ? teams.map((team) => `${team.name}: ${team.agents.join(", ")} - ${team.description}`).join("\n") : "No teams yet.");
+    outputFunc(
+      renderCollection(
+        "Teams",
+        teams.map((team) => `${button("team")} ${team.name}: ${team.agents.join(", ")} - ${team.description}`),
+        "No teams yet."
+      )
+    );
     return 0;
   }
   if (command === "show") {
@@ -298,7 +311,7 @@ export function runTeamCommand(config: ButterclawConfig, argv: string[], outputF
       instructions: parsed.values.instructions ?? parsed.values.prompt,
       overwrite: parsed.flags.has("force")
     });
-    outputFunc(`Created team ${team.name} in ${config.teamsDir}`);
+    outputFunc(successLine(`Created team ${team.name} in ${config.teamsDir}`));
     return 0;
   }
   throw new Error("Usage: butterclaw team list | show <name> | create <name> --agents <agent1,agent2> [--description text] [--instructions text] [--force]");
@@ -309,7 +322,7 @@ export function runSkillCommand(config: ButterclawConfig, argv: string[], output
   const command = argv[0]?.toLowerCase() ?? "list";
   if (command === "list") {
     const skills = loader.list();
-    outputFunc(skills.length ? skills.join("\n") : "No skills yet.");
+    outputFunc(renderCollection("Skills", skills.map((skill) => `${button("skill")} ${skill}`), "No skills yet."));
     return 0;
   }
   if (command === "show") {
@@ -328,7 +341,7 @@ export function runSkillCommand(config: ButterclawConfig, argv: string[], output
       body: parsed.values.body ?? parsed.values.instructions,
       overwrite: parsed.flags.has("force")
     });
-    outputFunc(`Created skill ${name} at ${file}`);
+    outputFunc(successLine(`Created skill ${name} at ${file}`));
     return 0;
   }
   throw new Error("Usage: butterclaw skill list | show <name> | create <name> [--description text] [--body text] [--force]");
@@ -340,9 +353,11 @@ export function runSessionCommand(config: ButterclawConfig, argv: string[], outp
   if (command === "list") {
     const sessions = store.list();
     outputFunc(
-      sessions.length
-        ? sessions.map((session) => `${session.name}: ${session.turns} turn(s), updated ${session.updatedAt}`).join("\n")
-        : "No sessions yet."
+      renderCollection(
+        "Sessions",
+        sessions.map((session) => `${button("session")} ${session.name}: ${session.turns} turn(s), updated ${session.updatedAt}`),
+        "No sessions yet."
+      )
     );
     return 0;
   }
@@ -354,7 +369,7 @@ export function runSessionCommand(config: ButterclawConfig, argv: string[], outp
   if (command === "clear") {
     const name = argv[1] ?? "";
     const cleared = store.clear(name);
-    outputFunc(cleared ? `Cleared session ${name}` : `No session found: ${name}`);
+    outputFunc(cleared ? successLine(`Cleared session ${name}`) : `No session found: ${name}`);
     return 0;
   }
   throw new Error("Usage: butterclaw session list | show <name> | clear <name>");
@@ -425,45 +440,5 @@ function parseCommandOptions(argv: string[]): { positionals: string[]; values: R
 }
 
 function printHelp(): void {
-  console.log(`Usage: butterclaw [options] [task...]
-
-Options:
-  --setup                         Run first-time setup
-  --init-config                   Write a starter config
-  --show-tools                    Print available tools
-  --version                       Print version
-  --agent <name>                  Run as a saved agent profile
-  --session <name>                Resume and save a named session
-  --provider <mock|ollama|openai-compatible>
-  --model <model>
-  --base-url <url>
-  --api-key-env <name>
-  --workspace <path>
-  --max-steps <number>
-  --max-context-chars <number>
-  --allow-shell
-  --allow-outside-workspace
-  --telegram-poll
-  --telegram-once
-  --telegram-token-env <name>
-  --telegram-base-url <url>
-  --telegram-allowed-chat <id>
-  --telegram-timeout <seconds>
-  --telegram-idle-sleep <seconds>
-  --google-client-id-env <name>
-  --google-client-secret-env <name>
-  --google-calendar-id <id>
-
-Commands:
-  butterclaw agent list
-  butterclaw agent create <name> --description <text> --instructions <text>
-  butterclaw team list
-  butterclaw team create <name> --agents <agent1,agent2>
-  butterclaw skill list
-  butterclaw skill create <name> --description <text> --body <text>
-  butterclaw session list
-  butterclaw session show <name>
-  butterclaw google login
-  butterclaw google status
-  butterclaw google logout`);
+  console.log(renderHelp("butterclaw 0.2.0"));
 }

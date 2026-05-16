@@ -4,6 +4,7 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { ButterclawConfig, configPath, defaultConfigDir, saveConfig } from "./config.js";
+import { button, commandRow, labelValue, panel, statusPill, successLine } from "./ui.js";
 import { ensureDir, ensureParent, splitCsv, trimTrailingSlash } from "./util.js";
 
 type InputFunc = (question: string) => string | Promise<string>;
@@ -32,13 +33,19 @@ export async function runSetup(
   }
 
   try {
-    outputFunc("Butterclaw setup");
-    outputFunc("This creates a local config, memory file, skills folder, and starter commands.");
+    outputFunc(
+      panel("Butterclaw setup", [
+        "Build a local agent workspace with config, memory, agents, teams,",
+        "sessions, skills, and optional channels.",
+        "",
+        commandRow(["provider", "workspace", "tools", "channels", "finish"])
+      ])
+    );
     outputFunc("");
 
     outputFunc("System check:");
     for (const [label, ok, detail] of await systemChecks(config)) {
-      outputFunc(`- ${ok ? "OK" : "WARN"}: ${label}${detail ? `: ${detail}` : ""}`);
+      outputFunc(`${statusPill(ok)} ${label}${detail ? `: ${detail}` : ""}`);
     }
     outputFunc("");
 
@@ -49,23 +56,23 @@ export async function runSetup(
     createLocalFiles(config);
     saveConfig(config, targetPath);
     outputFunc("");
-    outputFunc(`Wrote config: ${targetPath}`);
-    outputFunc(`Agents folder: ${config.agentsDir}`);
-    outputFunc(`Teams folder: ${config.teamsDir}`);
-    outputFunc(`Sessions folder: ${config.sessionsDir}`);
-    outputFunc(`Skills folder: ${config.skillsDir}`);
-    outputFunc(`Memory file: ${config.memoryPath}`);
+    outputFunc(successLine(`Wrote config: ${targetPath}`));
+    outputFunc(labelValue("Agents folder", config.agentsDir));
+    outputFunc(labelValue("Teams folder", config.teamsDir));
+    outputFunc(labelValue("Sessions folder", config.sessionsDir));
+    outputFunc(labelValue("Skills folder", config.skillsDir));
+    outputFunc(labelValue("Memory file", config.memoryPath));
     outputFunc("");
-    outputFunc("Try it now:");
+    outputFunc(`${button("run")} Try it now:`);
     outputFunc(`  butterclaw --config "${targetPath}" "list the files in this workspace"`);
     if (config.provider === "ollama") {
       outputFunc("");
-      outputFunc("For Telegram with Ollama:");
+      outputFunc(`${button("telegram")} For Telegram with Ollama:`);
       outputFunc(`  set ${config.telegramTokenEnv}=123456:your-token`);
       outputFunc(`  butterclaw --config "${targetPath}" --telegram-poll --telegram-allowed-chat YOUR_CHAT_ID`);
     } else if (config.provider === "openai-compatible") {
       outputFunc("");
-      outputFunc("Before using the model provider:");
+      outputFunc(`${button("env")} Before using the model provider:`);
       outputFunc(`  set ${config.apiKeyEnv}=paste-your-provider-key-here`);
     }
     return 0;
@@ -175,7 +182,7 @@ async function choose(
 ): Promise<string> {
   const normalizedDefault = options.includes(defaultValue) ? defaultValue : options[0];
   outputFunc(`${label}:`);
-  options.forEach((option, index) => outputFunc(`  ${index + 1}. ${option}${option === normalizedDefault ? " (default)" : ""}`));
+  options.forEach((option, index) => outputFunc(`  ${button(String(index + 1))} ${option}${option === normalizedDefault ? " (default)" : ""}`));
   while (true) {
     const value = (await inputFunc(`${label} [${normalizedDefault}]: `)).trim();
     if (!value) {

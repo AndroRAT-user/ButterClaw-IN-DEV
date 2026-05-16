@@ -7,6 +7,7 @@ powers with fewer moving pieces.
 ## Milestone 0: Lightweight Core
 
 - TypeScript Node CLI
+- polished terminal UI
 - first-run setup/onboarding command
 - mock, Ollama, and OpenAI-compatible providers
 - saved agent profiles

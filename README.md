@@ -10,6 +10,7 @@ Telegram channel without requiring a large service stack.
 ## Features
 
 - TypeScript Node CLI
+- polished terminal UI with panels, status pills, and button-like command labels
 - first-run setup command
 - provider adapters for `mock`, `ollama`, and OpenAI-compatible chat APIs
 - saved agent profiles with custom instructions
