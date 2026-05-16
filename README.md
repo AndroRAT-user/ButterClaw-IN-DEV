@@ -1,4 +1,4 @@
-# Butterclaw
+# Butterclaw [IN DEV]
 
 Butterclaw is a lightweight, local-first personal agent runtime. It is built in
 TypeScript like OpenClaw's main project, with a smaller core that can also run
