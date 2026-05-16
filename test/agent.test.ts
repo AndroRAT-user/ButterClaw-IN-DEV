@@ -104,6 +104,24 @@ test("empty provider responses are retried before returning a fallback", async (
   assert.equal(result.steps, 2);
 });
 
+test("configured model fallback tries the next candidate after provider failure", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "butterclaw-agent-"));
+  const config = defaultConfig({
+    workspace: root,
+    configDir: path.join(root, ".config"),
+    provider: "mock",
+    model: "mock-fail",
+    modelFallbacks: ["mock/mock-local"],
+    memoryPath: path.join(root, ".config", "memory.jsonl"),
+    skillsDir: path.join(root, ".config", "skills"),
+    telegramStatePath: path.join(root, ".config", "telegram-state.json")
+  });
+
+  const result = await new ButterclawAgent(config).run("say hello");
+
+  assert.match(result.answer, /Butterclaw mock provider is running/);
+});
+
 test("empty answer after a tool keeps the tool result visible", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "butterclaw-agent-"));
   fs.writeFileSync(path.join(root, "hello.txt"), "hi", "utf8");

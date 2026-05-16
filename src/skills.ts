@@ -12,7 +12,8 @@ export interface SkillCreateInput {
 export class SkillLoader {
   constructor(
     private readonly skillsDir: string,
-    private readonly maxChars: number
+    private readonly maxChars: number,
+    private readonly enabledTools: string[] = []
   ) {
     ensureDir(skillsDir);
   }
@@ -57,6 +58,10 @@ export class SkillLoader {
       }
       const file = path.join(this.skillsDir, name);
       const text = fs.readFileSync(file, "utf8");
+      const metadata = parseSkillMetadata(text);
+      if (metadata.disableModelInvocation || !metadata.requiresTools.every((tool) => this.enabledTools.includes(tool))) {
+        continue;
+      }
       const score = scoreText(`${name}\n${text}`, terms);
       if (score > 0) {
         scored.push({ score, name, file });
@@ -67,12 +72,54 @@ export class SkillLoader {
       .slice(0, limit)
       .map(({ file, name }) => {
         const text = fs.readFileSync(file, "utf8").trim();
+        const metadata = parseSkillMetadata(text);
         const body = truncate(text, this.maxChars);
-        return `# Skill: ${path.basename(name, ".md")}\n${body}`;
+        const requirements = metadata.requiresTools.length ? `\nRequired tools: ${metadata.requiresTools.join(", ")}` : "";
+        return `# Skill: ${path.basename(name, ".md")}${requirements}\n${body}`;
       });
   }
 
   private fileFor(name: string): string {
     return path.join(this.skillsDir, `${slugName(name, "skill name")}.md`);
   }
+}
+
+interface SkillMetadata {
+  requiresTools: string[];
+  disableModelInvocation: boolean;
+}
+
+export function parseSkillMetadata(text: string): SkillMetadata {
+  const metadata: SkillMetadata = { requiresTools: [], disableModelInvocation: false };
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) {
+    return metadata;
+  }
+  for (const line of match[1].split(/\r?\n/)) {
+    const [rawKey, ...rawValue] = line.split(":");
+    const key = rawKey.trim().toLowerCase();
+    const value = rawValue.join(":").trim();
+    if (key === "requires-tools" || key === "require-tools" || key === "tools") {
+      metadata.requiresTools = parseList(value);
+    }
+    if (key === "disable-model-invocation") {
+      metadata.disableModelInvocation = ["true", "yes", "1"].includes(value.toLowerCase());
+    }
+  }
+  return metadata;
+}
+
+function parseList(value: string): string[] {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return trimmed
+      .slice(1, -1)
+      .split(",")
+      .map((part) => part.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean);
+  }
+  return trimmed
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
 }

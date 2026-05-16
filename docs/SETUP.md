@@ -19,8 +19,8 @@ The setup flow:
 - asks for model, workspace, and step limits
 - keeps shell access disabled unless you explicitly enable it
 - optionally configures Telegram chat access
-- creates the config file, memory file, schedule file, agents folder, teams
-  folder, sessions folder, and skills folder
+- creates the config file, memory file, schedule file, task ledger, agents
+  folder, teams folder, sessions folder, and skills folder
 - writes a tiny starter skill
 - prints the command to run next
 
@@ -45,6 +45,13 @@ For a hosted API, choose:
 
 Butterclaw does not issue its own API key. It stores the environment variable
 name for your chosen model provider's key, not the secret itself.
+
+You can add model failover from the CLI when a run should try another model
+after provider failure:
+
+```cmd
+butterclaw --provider mock --model mock-fail --model-fallback mock/mock-local "hello"
+```
 
 ## Telegram During Setup
 
@@ -103,8 +110,8 @@ Create a local backup before large changes:
 butterclaw backup create
 ```
 
-The backup includes agents, teams, skills, sessions, schedules, and memory.
-OAuth token state and usage files are excluded.
+The backup includes agents, teams, skills, sessions, schedules, task records,
+and memory. OAuth token state and usage files are excluded.
 
 ## Local Schedules
 
@@ -114,9 +121,11 @@ Butterclaw can store one-shot reminders and recurring jobs in the config folder:
 butterclaw schedule add --name check-in --at 20m --message "remind me to review the build"
 butterclaw schedule add --name morning-brief --every 1d --message "summarize this workspace"
 butterclaw schedule run --due
+butterclaw tasks list
 ```
 
 See [SCHEDULING.md](SCHEDULING.md) for the command surface.
+See [TASKS.md](TASKS.md) for background task records.
 
 ## Gateway Hooks
 

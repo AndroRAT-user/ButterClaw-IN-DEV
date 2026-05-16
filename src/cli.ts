@@ -16,6 +16,7 @@ import { SessionStore } from "./sessions.js";
 import { runSetup } from "./setup.js";
 import { SkillLoader } from "./skills.js";
 import { TeamStore } from "./teams.js";
+import { formatTasks, parseTaskStatus, TaskStore } from "./tasks.js";
 import { toolPolicySummary } from "./tool-policy.js";
 import { button, panel, renderCollection, renderHelp, statusPill, successLine } from "./ui.js";
 import { splitCsv } from "./util.js";
@@ -42,6 +43,7 @@ interface Args {
   toolProfile?: ButterclawConfig["toolProfile"];
   toolAllow: string[];
   toolDeny: string[];
+  modelFallback: string[];
   allowShell: boolean;
   allowOutsideWorkspace: boolean;
   telegramPoll: boolean;
@@ -126,6 +128,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === "schedule" || command === "schedules" || command === "cron") {
     return handleAsyncCommand(() => runScheduleCommand(config, args.task.slice(1)));
   }
+  if (command === "task" || command === "tasks") {
+    return handleCommand(() => runTaskCommand(config, args.task.slice(1)));
+  }
   if (command === "whatsapp" || command === "wa") {
     return handleAsyncCommand(() => runWhatsAppCommand(config, args.task.slice(1)));
   }
@@ -174,6 +179,7 @@ export function parseArgs(argv: string[]): Args {
     help: false,
     toolAllow: [],
     toolDeny: [],
+    modelFallback: [],
     allowShell: false,
     allowOutsideWorkspace: false,
     telegramPoll: false,
@@ -204,6 +210,7 @@ export function parseArgs(argv: string[]): Args {
     "--tool-allow": (value) => args.toolAllow.push(...splitCsv(value)),
     "--deny-tool": (value) => args.toolDeny.push(...splitCsv(value)),
     "--tool-deny": (value) => args.toolDeny.push(...splitCsv(value)),
+    "--model-fallback": (value) => args.modelFallback.push(...splitCsv(value)),
     "--telegram-token-env": (value) => (args.telegramTokenEnv = value),
     "--telegram-base-url": (value) => (args.telegramBaseUrl = value),
     "--telegram-allowed-chat": (value) => args.telegramAllowedChat.push(...splitCsv(value)),
@@ -279,6 +286,7 @@ function applyOverrides(config: ButterclawConfig, args: Args): void {
   if (args.toolProfile) config.toolProfile = args.toolProfile;
   if (args.toolAllow.length) config.toolAllow = [...config.toolAllow, ...args.toolAllow];
   if (args.toolDeny.length) config.toolDeny = [...config.toolDeny, ...args.toolDeny];
+  if (args.modelFallback.length) config.modelFallbacks = [...config.modelFallbacks, ...args.modelFallback];
   if (args.allowShell) config.shellMode = "allow";
   if (args.allowOutsideWorkspace) config.allowOutsideWorkspace = true;
   if (args.telegramTokenEnv) config.telegramTokenEnv = args.telegramTokenEnv;
@@ -419,6 +427,7 @@ export async function runSlashCommand(
         `${button("/backup")} save local agents, teams, skills, sessions, schedules, and memory`,
         `${button("/schedule")} show local reminders and recurring jobs`,
         `${button("/gateway")} show local gateway and hook status`,
+        `${button("/tasks")} list local background task records`,
         `${button("/github")} show gh OAuth and repo status`,
         `${button("/whatsapp")} show WhatsApp channel status`
       ])
@@ -477,6 +486,11 @@ export async function runSlashCommand(
 
   if (command === "gateway" || command === "gw") {
     outputFunc(panel("Gateway", gatewayStatus(config).split("\n")));
+    return true;
+  }
+
+  if (command === "tasks" || command === "task") {
+    outputFunc(panel("Tasks", formatTasks(new TaskStore(config.taskPath).list()).split("\n")));
     return true;
   }
 
@@ -846,6 +860,37 @@ export async function runScheduleCommand(config: ButterclawConfig, argv: string[
   );
 }
 
+export function runTaskCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): number {
+  const store = new TaskStore(config.taskPath);
+  const command = normalizeListCommand(argv[0]?.toLowerCase() ?? "list");
+  if (command === "list" || command === "status") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const status = parseTaskStatus(parsed.values.status);
+    if (parsed.values.status && !status) {
+      throw new Error("Unknown task status. Use queued, running, succeeded, failed, or cancelled.");
+    }
+    outputFunc(
+      panel(
+        "Tasks",
+        formatTasks(
+          store.list({
+            status,
+            kind: parsed.values.kind
+          })
+        ).split("\n")
+      )
+    );
+    return 0;
+  }
+  if (command === "show" || command === "get") {
+    const task = store.get(argv[1] ?? "");
+    if (!task) throw new Error(`Unknown task: ${argv[1] ?? ""}`);
+    outputFunc(JSON.stringify(task, null, 2));
+    return 0;
+  }
+  throw new Error("Usage: butterclaw tasks list [--status status] [--kind kind] | show <taskId|runId>");
+}
+
 export async function runWhatsAppCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): Promise<number> {
   const command = argv[0]?.toLowerCase() ?? "status";
   const channel = new WhatsAppChannel(config);
@@ -880,8 +925,11 @@ async function runScheduleJobs(
     return 0;
   }
   let ok = true;
+  const taskStore = new TaskStore(config.taskPath);
   for (const job of jobs) {
     const startedAt = new Date();
+    const task = taskStore.create({ kind: "schedule", source: "cli", summary: job.message, runId: job.id, session: job.session });
+    taskStore.start(task.id);
     outputFunc(`Running schedule ${job.name} (${job.id})...`);
     try {
       const runConfig = { ...config };
@@ -899,12 +947,14 @@ async function runScheduleJobs(
         ...(job.session ? { sessionName: job.session } : {})
       }).run(job.message);
       const run = store.recordRun(job, "ok", result.answer, startedAt);
+      taskStore.finish(task.id, "succeeded", { output: result.answer });
       outputFunc(successLine(`Schedule ${job.name} finished as ${run.id}`));
       outputFunc(result.answer);
     } catch (error) {
       ok = false;
       const message = error instanceof Error ? error.message : String(error);
       const run = store.recordRun(job, "error", message, startedAt);
+      taskStore.finish(task.id, "failed", { error: message });
       outputFunc(`Schedule ${job.name} failed as ${run.id}: ${message}`);
     }
   }

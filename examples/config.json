@@ -1,6 +1,7 @@
 {
   "provider": "mock",
   "model": "mock-local",
+  "modelFallbacks": [],
   "baseUrl": null,
   "apiKeyEnv": "MODEL_PROVIDER_API_KEY",
   "maxSteps": 6,

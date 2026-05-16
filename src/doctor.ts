@@ -26,6 +26,7 @@ export async function doctorChecks(config: ButterclawConfig): Promise<DoctorChec
     pathCheck("Skills directory", config.skillsDir, "directory"),
     pathCheck("Memory file", config.memoryPath, "file"),
     pathCheck("Schedule file", config.schedulePath, "file"),
+    pathCheck("Task ledger", config.taskPath, "file"),
     {
       label: "Shell tool",
       ok: config.shellMode === "deny",
@@ -35,6 +36,11 @@ export async function doctorChecks(config: ButterclawConfig): Promise<DoctorChec
       label: "Tool policy",
       ok: enabledToolNames(config).length > 0,
       detail: `${config.toolProfile} profile, ${enabledToolNames(config).length} tool(s) enabled`
+    },
+    {
+      label: "Model failover",
+      ok: true,
+      detail: config.modelFallbacks.length ? `${config.modelFallbacks.length} fallback(s): ${config.modelFallbacks.join(", ")}` : "no fallback models configured"
     },
     {
       label: "Gateway hooks",

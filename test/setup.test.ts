@@ -31,6 +31,8 @@ test("cli parser reads flags and task text", () => {
     "read_file,workspace_map",
     "--deny-tool",
     "run_shell",
+    "--model-fallback",
+    "mock/mock-local,ollama/llama3.2:3b",
     "--allow-shell",
     "--telegram-allowed-chat",
     "123,456",
@@ -66,6 +68,7 @@ test("cli parser reads flags and task text", () => {
   assert.equal(args.toolProfile, "coding");
   assert.deepEqual(args.toolAllow, ["read_file", "workspace_map"]);
   assert.deepEqual(args.toolDeny, ["run_shell"]);
+  assert.deepEqual(args.modelFallback, ["mock/mock-local", "ollama/llama3.2:3b"]);
   assert.equal(args.allowShell, true);
   assert.deepEqual(args.telegramAllowedChat, ["123", "456"]);
   assert.equal(args.googleClientIdEnv, "GOOGLE_CLIENT");
@@ -101,6 +104,7 @@ test("setup writes config and starter skill", async () => {
   assert.equal(fs.existsSync(path.join(root, "config", "sessions")), true);
   assert.equal(fs.existsSync(path.join(root, "config", "memory.jsonl")), true);
   assert.equal(fs.existsSync(path.join(root, "config", "schedule.json")), true);
+  assert.equal(fs.existsSync(path.join(root, "config", "tasks.json")), true);
   assert.equal(fs.existsSync(path.join(root, "config", "skills", "starter.md")), true);
   assert.match(lines.join("\n"), /Wrote config/);
 });
@@ -116,6 +120,7 @@ test("setup with custom config keeps files nearby", async () => {
   assert.equal(fs.existsSync(path.join(root, "custom", "skills", "starter.md")), true);
   assert.equal(fs.existsSync(path.join(root, "custom", "memory.jsonl")), true);
   assert.equal(fs.existsSync(path.join(root, "custom", "schedule.json")), true);
+  assert.equal(fs.existsSync(path.join(root, "custom", "tasks.json")), true);
 });
 
 test("missing custom config defaults nearby", () => {
@@ -127,6 +132,7 @@ test("missing custom config defaults nearby", () => {
   assert.equal(config.sessionsDir, path.join(root, "custom", "sessions"));
   assert.equal(config.skillsDir, path.join(root, "custom", "skills"));
   assert.equal(config.schedulePath, path.join(root, "custom", "schedule.json"));
+  assert.equal(config.taskPath, path.join(root, "custom", "tasks.json"));
   assert.equal(config.whatsappStatePath, path.join(root, "custom", "whatsapp-state.json"));
 });
 

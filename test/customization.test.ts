@@ -14,6 +14,7 @@ import {
   runSessionCommand,
   runSkillCommand,
   runSlashCommand,
+  runTaskCommand,
   runTeamCommand,
   runTeamRunCommand
 } from "../src/cli.js";
@@ -107,6 +108,35 @@ test("skill command creates and shows markdown skills", () => {
   assert.equal(runSkillCommand(config, ["show", "bug-hunt"], (line) => lines.push(line)), 0);
   assert.match(lines.join("\n"), /# bug-hunt/);
   assert.match(lines.join("\n"), /Check reproduction/);
+});
+
+test("skill metadata gates prompt loading by required tools", async () => {
+  const config = tempConfig();
+  config.toolProfile = "minimal";
+  fs.mkdirSync(config.skillsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(config.skillsDir, "readme-helper.md"),
+    "---\nrequires-tools: read_file\n---\n# readme-helper\n\nUse for README work.\n",
+    "utf8"
+  );
+  fs.writeFileSync(
+    path.join(config.skillsDir, "writer-helper.md"),
+    "---\nrequires-tools: write_file\n---\n# writer-helper\n\nUse for writing files.\n",
+    "utf8"
+  );
+  fs.writeFileSync(
+    path.join(config.skillsDir, "hidden-helper.md"),
+    "---\ndisable-model-invocation: true\n---\n# hidden-helper\n\nShould stay out of prompts.\n",
+    "utf8"
+  );
+  const provider = new RecordingProvider();
+
+  await new ButterclawAgent(config, { provider }).run("readme helper task");
+
+  const system = provider.messages[0][0].content;
+  assert.match(system, /readme-helper/);
+  assert.doesNotMatch(system, /writer-helper/);
+  assert.doesNotMatch(system, /hidden-helper/);
 });
 
 test("team command creates and lists agent teams", () => {
@@ -229,10 +259,43 @@ test("backup command saves local state without OAuth tokens", () => {
   assert.equal(backup.files.some((file) => file.path === "sessions/build.jsonl"), true);
   assert.equal(backup.files.some((file) => file.path === "memory.jsonl"), true);
   assert.equal(backup.files.some((file) => file.path === "schedule.json"), true);
+  assert.equal(backup.files.some((file) => file.path === "tasks.json"), true);
   assert.equal(backupText.includes("secret-refresh-token"), false);
   assert.equal(backupText.includes("secret-chat"), false);
   assert.equal(backup.excluded.includes("google-oauth.json"), true);
   assert.equal(backup.excluded.includes("whatsapp-state.json"), true);
+});
+
+test("task command lists and shows background task records", () => {
+  const config = tempConfig();
+  createLocalFiles(config);
+  const taskFile = config.taskPath;
+  fs.writeFileSync(
+    taskFile,
+    JSON.stringify({
+      version: 1,
+      tasks: [
+        {
+          id: "task_demo",
+          kind: "agent-hook",
+          source: "gateway",
+          status: "succeeded",
+          summary: "demo task",
+          createdAt: "2026-05-16T00:00:00.000Z",
+          updatedAt: "2026-05-16T00:00:01.000Z"
+        }
+      ]
+    }),
+    "utf8"
+  );
+  const lines: string[] = [];
+
+  assert.equal(runTaskCommand(config, ["list"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /task_demo/);
+
+  lines.length = 0;
+  assert.equal(runTaskCommand(config, ["show", "task_demo"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /demo task/);
 });
 
 test("active agent profile is included in the system prompt", async () => {

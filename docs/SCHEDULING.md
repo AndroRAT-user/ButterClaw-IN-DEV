@@ -51,6 +51,14 @@ butterclaw schedule daemon
 The daemon is intentionally local and foreground-first. Use your operating
 system's normal service manager if you want it to stay running after logout.
 
+Every schedule run also writes a background task record. Use this when you want
+the latest scheduled work and its output without digging through run history:
+
+```cmd
+butterclaw tasks list --kind schedule
+butterclaw tasks show task_12345678
+```
+
 ## Sessions And Agents
 
 Jobs can keep context in a named session:
@@ -84,3 +92,8 @@ Agent tools:
 Tool policy group:
 
 - `group:automation`
+
+Related task tools:
+
+- `task_list`
+- `task_show`

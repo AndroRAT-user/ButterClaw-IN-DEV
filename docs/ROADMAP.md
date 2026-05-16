@@ -20,8 +20,11 @@ powers with fewer moving pieces.
 - GitHub tools through gh OAuth
 - WhatsApp bridge/cloud/webhook channel
 - loopback HTTP gateway with authenticated wake/agent hooks
+- gateway idempotency and OpenAI-compatible chat/responses endpoints
+- local background task ledger
 - workspace-confined file tools and workspace mapping
 - tool profiles with allow and deny rules
+- skill metadata with required tool gates
 - local slash commands
 - optional shell tool
 - bounded sub-agents for focused delegated tasks
@@ -36,8 +39,7 @@ powers with fewer moving pieces.
 
 - streaming output
 - richer planning traces
-- per-skill permission declarations
-- skill metadata with required permissions
+- richer per-skill permission declarations
 - prompt compaction for smaller-context models
 - model profiles for low-RAM local models
 
@@ -45,7 +47,7 @@ powers with fewer moving pieces.
 
 - WebSocket control/RPC on the local gateway
 - mapped webhook transforms for selected integrations; Telegram starts with long polling
-- optional SQLite-backed background task queue
+- optional SQLite-backed task queue when JSON storage becomes too small
 - progress notifications for scheduled and background work without a heavy daemon stack
 
 ## Milestone 3: Practical Integrations

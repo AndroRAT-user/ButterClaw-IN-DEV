@@ -4,6 +4,7 @@ import { AgentProfile, AgentStore, applyAgentProfile } from "./agents.js";
 import { ButterclawAgent } from "./agent.js";
 import { ButterclawConfig } from "./config.js";
 import { ScheduleStore } from "./scheduler.js";
+import { TaskStore } from "./tasks.js";
 import { isRecord, truncate } from "./util.js";
 
 export class GatewayError extends Error {}
@@ -14,11 +15,13 @@ export interface GatewayRun {
   output?: string;
   steps?: number;
   jobId?: string;
+  taskId?: string;
   error?: string;
 }
 
 export class ButterclawGateway {
   private readonly startedAt = Date.now();
+  private readonly replayCache = new Map<string, GatewayRun>();
 
   constructor(private readonly config: ButterclawConfig) {}
 
@@ -62,6 +65,24 @@ export class ButterclawGateway {
       }
       if (req.method === "GET" && url.pathname === "/v1/models") {
         sendJson(res, 200, this.models());
+        return;
+      }
+      if (url.pathname === "/v1/chat/completions" || url.pathname === "/v1/responses") {
+        if (!this.authOk(req)) {
+          sendJson(res, 401, { ok: false, error: "unauthorized" });
+          return;
+        }
+        const body = await readJsonBody(req, this.config.gatewayMaxBodyBytes);
+        const result = await this.runCompatibilityRequest(url.pathname, body);
+        sendJson(res, result.status, result.body);
+        return;
+      }
+      if (url.pathname === "/tasks" || url.pathname.startsWith("/tasks/")) {
+        if (!this.authOk(req)) {
+          sendJson(res, 401, { ok: false, error: "unauthorized" });
+          return;
+        }
+        this.handleTasks(res, url);
         return;
       }
       if (url.pathname === this.config.gatewayHookPath || url.pathname.startsWith(`${this.config.gatewayHookPath}/`)) {
@@ -113,21 +134,26 @@ export class ButterclawGateway {
       res.end("Method Not Allowed");
       return;
     }
-    const token = hookToken(req);
-    const expected = process.env[this.config.gatewayTokenEnv] ?? "";
-    if (!expected || !safeEqual(token, expected)) {
+    if (!this.authOk(req)) {
       sendJson(res, 401, { ok: false, error: "unauthorized" });
       return;
     }
     const body = await readJsonBody(req, this.config.gatewayMaxBodyBytes);
+    const idempotencyKey = resolveIdempotencyKey(req, body);
+    if (idempotencyKey && this.replayCache.has(idempotencyKey)) {
+      sendJson(res, 200, { ...this.replayCache.get(idempotencyKey), replayed: true });
+      return;
+    }
     const subPath = url.pathname.slice(this.config.gatewayHookPath.length).replace(/^\/+/, "");
     if (subPath === "wake") {
       const result = this.enqueueWake(body);
+      if (idempotencyKey) this.replayCache.set(idempotencyKey, result);
       sendJson(res, 200, result);
       return;
     }
     if (subPath === "agent") {
       const result = await this.runAgentHook(body);
+      if (idempotencyKey) this.replayCache.set(idempotencyKey, result);
       sendJson(res, result.status === "ok" ? 200 : 400, result);
       return;
     }
@@ -144,16 +170,18 @@ export class ButterclawGateway {
     }
     const mode = payload.mode === "next-heartbeat" ? "next-heartbeat" : "now";
     const session = String(payload.session ?? payload.sessionKey ?? "main").trim() || "main";
+    const task = new TaskStore(this.config.taskPath).create({ kind: "wake-hook", source: "gateway", summary: text, session });
     const job = new ScheduleStore(this.config.schedulePath).add({
       name: String(payload.name ?? "hook-wake"),
       at: mode === "now" ? "now" : "1m",
       message: text,
       session
     });
-    return { id: newRunId(), status: "accepted", jobId: job.id, output: `queued ${mode} wake for ${job.nextRunAt}` };
+    new TaskStore(this.config.taskPath).finish(task.id, "succeeded", { output: `queued ${job.id}` });
+    return { id: newRunId(), status: "accepted", jobId: job.id, taskId: task.id, output: `queued ${mode} wake for ${job.nextRunAt}` };
   }
 
-  private async runAgentHook(payload: unknown): Promise<GatewayRun> {
+  private async runAgentHook(payload: unknown, kind = "agent-hook"): Promise<GatewayRun> {
     if (!isRecord(payload)) {
       return { id: newRunId(), status: "error", error: "JSON object required" };
     }
@@ -162,6 +190,10 @@ export class ButterclawGateway {
       return { id: newRunId(), status: "error", error: "message required" };
     }
     const sessionName = optionalSlug(payload.session ?? payload.sessionKey);
+    const runId = newRunId();
+    const taskStore = new TaskStore(this.config.taskPath);
+    const task = taskStore.create({ kind, source: "gateway", summary: message, runId, session: sessionName });
+    taskStore.start(task.id);
     try {
       const runConfig = { ...this.config };
       const profile = this.resolveAgentProfile(payload, runConfig);
@@ -169,10 +201,64 @@ export class ButterclawGateway {
         ...(profile ? { agentProfile: profile } : {}),
         ...(sessionName ? { sessionName } : {})
       }).run(message);
-      return { id: newRunId(), status: "ok", output: result.answer, steps: result.steps };
+      taskStore.finish(task.id, "succeeded", { output: result.answer });
+      return { id: runId, status: "ok", output: result.answer, steps: result.steps, taskId: task.id };
     } catch (error) {
-      return { id: newRunId(), status: "error", error: error instanceof Error ? error.message : String(error) };
+      const message = error instanceof Error ? error.message : String(error);
+      taskStore.finish(task.id, "failed", { error: message });
+      return { id: runId, status: "error", error: message, taskId: task.id };
     }
+  }
+
+  private async runCompatibilityRequest(pathname: string, payload: unknown): Promise<{ status: number; body: unknown }> {
+    const message = compatibilityMessage(payload);
+    if (!message) {
+      return { status: 400, body: { error: { message: "message or input required" } } };
+    }
+    const model = isRecord(payload) && typeof payload.model === "string" ? payload.model : "butterclaw/default";
+    const kind = pathname === "/v1/responses" ? "compat-responses" : "compat-chat";
+    const result = await this.runAgentHook({ message, session: isRecord(payload) ? payload.session : undefined }, kind);
+    if (result.status !== "ok") {
+      return { status: 500, body: { error: { message: result.error ?? "agent failed" }, task_id: result.taskId } };
+    }
+    if (pathname === "/v1/responses") {
+      return {
+        status: 200,
+        body: {
+          id: result.id,
+          object: "response",
+          model,
+          output_text: result.output ?? "",
+          task_id: result.taskId
+        }
+      };
+    }
+    return {
+      status: 200,
+      body: {
+        id: result.id,
+        object: "chat.completion",
+        model,
+        choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: result.output ?? "" } }],
+        task_id: result.taskId
+      }
+    };
+  }
+
+  private handleTasks(res: http.ServerResponse, url: URL): void {
+    const store = new TaskStore(this.config.taskPath);
+    const id = url.pathname.replace(/^\/tasks\/?/, "");
+    if (id) {
+      const task = store.get(id);
+      sendJson(res, task ? 200 : 404, task ?? { ok: false, error: "task_not_found" });
+      return;
+    }
+    sendJson(res, 200, { object: "list", data: store.list() });
+  }
+
+  private authOk(req: http.IncomingMessage): boolean {
+    const expected = process.env[this.config.gatewayTokenEnv] ?? "";
+    return Boolean(expected) && safeEqual(hookToken(req), expected);
   }
 
   private resolveAgentProfile(payload: Record<string, unknown>, config: ButterclawConfig): AgentProfile | undefined {
@@ -246,6 +332,62 @@ function hookToken(req: http.IncomingMessage): string {
     return auth.slice(7).trim();
   }
   return String(req.headers["x-butterclaw-token"] ?? req.headers["x-openclaw-token"] ?? "").trim();
+}
+
+function resolveIdempotencyKey(req: http.IncomingMessage, payload: unknown): string | undefined {
+  const header = String(req.headers["idempotency-key"] ?? req.headers["x-idempotency-key"] ?? "").trim();
+  if (header) {
+    return header.slice(0, 256);
+  }
+  if (isRecord(payload) && typeof payload.idempotencyKey === "string") {
+    return payload.idempotencyKey.trim().slice(0, 256) || undefined;
+  }
+  return undefined;
+}
+
+function compatibilityMessage(payload: unknown): string {
+  if (!isRecord(payload)) {
+    return "";
+  }
+  if (typeof payload.input === "string") {
+    return payload.input.trim();
+  }
+  if (Array.isArray(payload.input)) {
+    return payload.input
+      .filter(isRecord)
+      .map((item) => {
+        if (typeof item.content === "string") return item.content;
+        if (Array.isArray(item.content)) {
+          return item.content
+            .filter(isRecord)
+            .map((part) => String(part.text ?? part.input_text ?? ""))
+            .join("\n");
+        }
+        return String(item.text ?? item.input_text ?? "");
+      })
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  if (typeof payload.message === "string") {
+    return payload.message.trim();
+  }
+  if (Array.isArray(payload.messages)) {
+    const messages = payload.messages.filter(isRecord);
+    const lastUser = [...messages].reverse().find((message) => message.role === "user");
+    const content = lastUser?.content;
+    if (typeof content === "string") {
+      return content.trim();
+    }
+    if (Array.isArray(content)) {
+      return content
+        .filter(isRecord)
+        .map((part) => String(part.text ?? part.input_text ?? ""))
+        .join("\n")
+        .trim();
+    }
+  }
+  return "";
 }
 
 function safeEqual(actual: string, expected: string): boolean {

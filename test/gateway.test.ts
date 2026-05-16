@@ -80,6 +80,30 @@ test("gateway hook agent requires bearer auth and runs the local agent", async (
   });
 });
 
+test("gateway hook agent is idempotent and records tasks", async () => {
+  await withGateway(async (baseUrl, config) => {
+    const init = {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer secret-token",
+        "Idempotency-Key": "same-request",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ message: "hello" })
+    };
+    const first = await fetchJson(`${baseUrl}${config.gatewayHookPath}/agent`, init);
+    const second = await fetchJson(`${baseUrl}${config.gatewayHookPath}/agent`, init);
+
+    assert.equal(first.id, second.id);
+    assert.equal(second.replayed, true);
+    assert.equal(first.taskId, second.taskId);
+
+    const tasks = await fetchJson(`${baseUrl}/tasks`, { headers: { Authorization: "Bearer secret-token" } });
+    assert.equal((tasks.data as unknown[]).length, 1);
+    assert.equal((tasks.data as Array<{ status: string }>)[0].status, "succeeded");
+  });
+});
+
 test("gateway wake hook queues a due schedule job", async () => {
   await withGateway(async (baseUrl, config) => {
     const response = await fetchJson(`${baseUrl}${config.gatewayHookPath}/wake`, {
@@ -98,6 +122,41 @@ test("gateway wake hook queues a due schedule job", async () => {
     assert.equal(jobs[0].session, "release-work");
     assert.equal(jobs[0].message, "check the build");
     assert.equal(store.due().length, 1);
+  });
+});
+
+test("gateway exposes OpenAI-compatible chat and responses endpoints", async () => {
+  await withGateway(async (baseUrl) => {
+    const chat = await fetchJson(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer secret-token",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ model: "butterclaw/default", messages: [{ role: "user", content: "hello" }] })
+    });
+    assert.equal(chat.object, "chat.completion");
+    assert.equal(chat.model, "butterclaw/default");
+    assert.match(chat.choices[0].message.content, /Butterclaw mock provider is running/);
+    assert.match(chat.task_id, /^task_/);
+
+    const response = await fetchJson(`${baseUrl}/v1/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer secret-token",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ model: "butterclaw/default", input: "hello" })
+    });
+    assert.equal(response.object, "response");
+    assert.equal(response.model, "butterclaw/default");
+    assert.match(response.output_text, /Butterclaw mock provider is running/);
+
+    const tasks = await fetchJson(`${baseUrl}/tasks`, { headers: { Authorization: "Bearer secret-token" } });
+    assert.deepEqual(
+      (tasks.data as Array<{ kind: string }>).map((task) => task.kind).sort(),
+      ["compat-chat", "compat-responses"]
+    );
   });
 });
 

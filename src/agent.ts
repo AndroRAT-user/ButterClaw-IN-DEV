@@ -5,7 +5,7 @@ import { buildProvider, Message, Provider } from "./providers.js";
 import { SessionStore } from "./sessions.js";
 import { SkillLoader } from "./skills.js";
 import { TeamStore } from "./teams.js";
-import { isToolEnabled } from "./tool-policy.js";
+import { enabledToolNames, isToolEnabled } from "./tool-policy.js";
 import { buildDefaultRegistry, ToolRegistry, ToolResult } from "./tools.js";
 import { UsageTracker } from "./usage.js";
 import { isRecord, truncate } from "./util.js";
@@ -47,7 +47,7 @@ export class ButterclawAgent {
     this.registry = options.registry ?? buildDefaultRegistry(config);
     this.memory = options.memory ?? new LocalMemory(config.memoryPath);
     this.usage = options.usage ?? UsageTracker.fromConfig(config);
-    this.skills = new SkillLoader(config.skillsDir, config.maxSkillChars);
+    this.skills = new SkillLoader(config.skillsDir, config.maxSkillChars, enabledToolNames(config));
     this.recordMemory = options.recordMemory ?? true;
     this.recordSession = options.recordSession ?? Boolean(options.sessionName);
     this.sessionName = options.sessionName;

@@ -43,6 +43,23 @@ Wake hook:
 curl -X POST http://127.0.0.1:18789/hooks/wake -H "Authorization: Bearer choose-a-local-token" -H "Content-Type: application/json" -d "{\"text\":\"check the build\"}"
 ```
 
+OpenAI-compatible local calls:
+
+```cmd
+curl -X POST http://127.0.0.1:18789/v1/chat/completions -H "Authorization: Bearer choose-a-local-token" -H "Content-Type: application/json" -d "{\"messages\":[{\"role\":\"user\",\"content\":\"summarize this workspace\"}]}"
+curl -X POST http://127.0.0.1:18789/v1/responses -H "Authorization: Bearer choose-a-local-token" -H "Content-Type: application/json" -d "{\"input\":\"summarize this workspace\"}"
+```
+
+Use an `Idempotency-Key` header with wake or agent hooks when retrying from an
+external service so the gateway does not duplicate the run.
+
+Task inspection:
+
+```cmd
+butterclaw tasks list
+curl http://127.0.0.1:18789/tasks -H "Authorization: Bearer choose-a-local-token"
+```
+
 See [GATEWAY.md](GATEWAY.md).
 
 ## GitHub

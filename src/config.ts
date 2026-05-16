@@ -26,6 +26,7 @@ export interface ButterclawConfig {
   toolProfile: ToolProfile;
   toolAllow: string[];
   toolDeny: string[];
+  modelFallbacks: string[];
   allowOutsideWorkspace: boolean;
   requestTimeoutSeconds: number;
   shellTimeoutSeconds: number;
@@ -66,6 +67,7 @@ export interface ButterclawConfig {
   googleCalendarId: string;
   googleOAuthPath: string;
   schedulePath: string;
+  taskPath: string;
   agentsDir: string;
   teamsDir: string;
   sessionsDir: string;
@@ -104,6 +106,7 @@ export function defaultConfig(overrides: Partial<ButterclawConfig> = {}): Butter
     toolProfile: "full",
     toolAllow: [],
     toolDeny: [],
+    modelFallbacks: [],
     allowOutsideWorkspace: false,
     requestTimeoutSeconds: 120,
     shellTimeoutSeconds: 20,
@@ -144,6 +147,7 @@ export function defaultConfig(overrides: Partial<ButterclawConfig> = {}): Butter
     googleCalendarId: "primary",
     googleOAuthPath: path.join(configDir, "google-oauth.json"),
     schedulePath: path.join(configDir, "schedule.json"),
+    taskPath: path.join(configDir, "tasks.json"),
     agentsDir: path.join(configDir, "agents"),
     teamsDir: path.join(configDir, "teams"),
     sessionsDir: path.join(configDir, "sessions"),
@@ -163,6 +167,7 @@ export function normalizeConfig(config: ButterclawConfig): ButterclawConfig {
     toolProfile: config.toolProfile ?? "full",
     toolAllow: (config.toolAllow ?? []).map(String),
     toolDeny: (config.toolDeny ?? []).map(String),
+    modelFallbacks: (config.modelFallbacks ?? []).map(String).filter(Boolean),
     sessionMaxTurns: Number.isFinite(config.sessionMaxTurns) ? Math.max(0, Math.trunc(config.sessionMaxTurns)) : 200,
     telegramAllowedChats: config.telegramAllowedChats.map(String),
     githubCliPath: config.githubCliPath || "gh",
@@ -196,6 +201,7 @@ export function normalizeConfig(config: ButterclawConfig): ButterclawConfig {
     memoryPath: path.resolve(config.memoryPath || path.join(configDir, "memory.jsonl")),
     googleOAuthPath: path.resolve(config.googleOAuthPath || path.join(configDir, "google-oauth.json")),
     schedulePath: path.resolve(config.schedulePath || path.join(configDir, "schedule.json")),
+    taskPath: path.resolve(config.taskPath || path.join(configDir, "tasks.json")),
     whatsappStatePath: path.resolve(config.whatsappStatePath || path.join(configDir, "whatsapp-state.json")),
     telegramStatePath: path.resolve(config.telegramStatePath || path.join(configDir, "telegram-state.json"))
   };

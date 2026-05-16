@@ -13,10 +13,10 @@ Telegram channel without requiring a large service stack.
 - polished terminal UI with panels, status pills, and button-like command labels
 - first-run setup command
 - doctor diagnostics for setup, provider, workspace, and OAuth state
-- local JSON backup for agents, teams, skills, sessions, schedules, and memory
-- local scheduler for one-shot reminders and recurring agent jobs
-- loopback HTTP gateway with health, model listing, and authenticated webhooks
-- provider adapters for `mock`, `ollama`, and OpenAI-compatible chat APIs
+- local JSON backup for agents, teams, skills, sessions, schedules, task records, and memory
+- local scheduler for one-shot reminders and recurring agent jobs, with task ledger records
+- loopback HTTP gateway with health, model listing, authenticated webhooks, OpenAI-compatible endpoints, and task inspection
+- provider adapters for `mock`, `ollama`, and OpenAI-compatible chat APIs, plus ordered model failover
 - saved agent profiles with custom instructions
 - saved agent teams that can delegate one task to several specialists
 - resumable named sessions with local transcripts
@@ -32,7 +32,8 @@ Telegram channel without requiring a large service stack.
 - bounded sub-agents for delegated worker tasks
 - local slash commands for status, tools, policy, reset, doctor, and backup
 - JSONL local memory with simple relevance search
-- Markdown skill loading from a local skills folder
+- Markdown skill loading from a local skills folder with metadata gates for required tools
+- local background task ledger for gateway hooks, compatibility calls, and scheduled runs
 - local usage tracking
 
 ## Quick Start
@@ -95,6 +96,7 @@ butterclaw /tools
 butterclaw /tool-policy
 butterclaw --session butter-build /new
 butterclaw /schedule
+butterclaw /tasks
 butterclaw /github
 butterclaw /whatsapp
 ```
@@ -106,6 +108,7 @@ butterclaw schedule add --name check-in --at 20m --message "remind me to review 
 butterclaw schedule add --name morning-brief --every 1d --message "summarize this workspace"
 butterclaw schedule list
 butterclaw schedule run --due
+butterclaw tasks list
 ```
 
 Start the local gateway and receive authenticated hooks:
@@ -114,6 +117,7 @@ Start the local gateway and receive authenticated hooks:
 set BUTTERCLAW_GATEWAY_TOKEN=choose-a-local-token
 butterclaw gateway serve
 curl -X POST http://127.0.0.1:18789/hooks/agent -H "Authorization: Bearer choose-a-local-token" -H "Content-Type: application/json" -d "{\"message\":\"hello\"}"
+curl -X POST http://127.0.0.1:18789/v1/chat/completions -H "Authorization: Bearer choose-a-local-token" -H "Content-Type: application/json" -d "{\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}"
 ```
 
 Create a skill:
@@ -142,6 +146,14 @@ Use an OpenAI-compatible endpoint:
 set MODEL_PROVIDER_API_KEY=your-provider-api-key
 butterclaw --provider openai-compatible --base-url https://openrouter.ai/api/v1 --model openai/gpt-oss-120b:free "make a plan for my project"
 butterclaw --request-timeout-seconds 180 "review this project"
+```
+
+Add ordered fallback models when you want Butterclaw to keep moving if the
+primary provider/model fails:
+
+```cmd
+butterclaw --provider mock --model mock-fail --model-fallback mock/mock-local "hello"
+butterclaw --provider ollama --model llama3.2:3b --model-fallback ollama/qwen2.5-coder:7b "review this project"
 ```
 
 Enable shell commands only when you actually need them:
@@ -189,6 +201,21 @@ butterclaw schedule daemon
 
 Agent tools: `schedule_list`, `schedule_add`, and `schedule_remove`.
 
+## Background Tasks
+
+Gateway hook runs, OpenAI-compatible gateway calls, and scheduled jobs are
+recorded in a local task ledger. This gives you a lightweight background-work
+view without running a database service.
+
+```cmd
+butterclaw tasks list
+butterclaw tasks list --status succeeded
+butterclaw tasks show task_12345678
+butterclaw /tasks
+```
+
+Agent tools: `task_list` and `task_show`.
+
 ## Gateway And Webhooks
 
 Butterclaw's gateway is a small loopback HTTP process for local control and
@@ -205,8 +232,12 @@ Endpoints:
 
 - `GET /health` and `GET /status`
 - `GET /v1/models`
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
 - `POST /hooks/wake`
 - `POST /hooks/agent`
+- `GET /tasks`
+- `GET /tasks/<id>`
 
 Hook auth uses `Authorization: Bearer <token>` or `x-butterclaw-token`. Query
 string tokens are rejected. See [docs/GATEWAY.md](docs/GATEWAY.md).
@@ -394,11 +425,21 @@ butterclaw backup create C:\path\to\butterclaw-backup.json
 ```
 
 Skills are local Markdown files that Butterclaw loads when they match the task.
+Frontmatter can require enabled tools or disable model prompt injection for a
+skill that is meant to be used only by other tooling.
 
 ```cmd
 butterclaw skill list
 butterclaw skill show bug-hunt
 butterclaw skill create release-check --description "Use before releases." --body "Run tests, inspect docs, and check version notes."
+```
+
+```markdown
+---
+requires-tools: read_file, search_files
+---
+# release-check
+Run tests, inspect docs, and check version notes.
 ```
 
 ## Tool Call Protocol
@@ -414,8 +455,9 @@ After the tool runs, Butterclaw sends the result back to the model and asks it
 to continue. This keeps the runtime portable across providers that do not
 support native tool calling.
 
-Butterclaw also exposes `workspace_map`, `delegate_task`, `delegate_team`, and
-`schedule_*` tools. The map tool gives the model a compact project outline.
+Butterclaw also exposes `workspace_map`, `delegate_task`, `delegate_team`,
+`schedule_*`, and `task_*` tools. The map tool gives the model a compact
+project outline.
 `delegate_task` starts one bounded sub-agent with the same workspace tools,
 while `delegate_team` runs several saved agent profiles on the same task and
 combines their reports. Sub-agents do not get their own delegation tool, so
@@ -423,8 +465,8 @@ delegation stays simple and finite. Butterclaw keeps delegated reports visible
 in the final answer so agent work does not disappear behind a vague summary.
 
 Local slash commands such as `/status`, `/tools`, `/tool-policy`, `/new`,
-`/doctor`, `/backup`, `/schedule`, `/github`, and `/whatsapp` are handled by the
-CLI itself and are never sent to the model.
+`/doctor`, `/backup`, `/schedule`, `/tasks`, `/github`, and `/whatsapp` are
+handled by the CLI itself and are never sent to the model.
 
 ## Development
 

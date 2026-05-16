@@ -24,9 +24,24 @@ export function estimateTokens(text: string): number {
 }
 
 export function buildProvider(config: ButterclawConfig): Provider {
+  const candidates = buildProviderCandidates(config);
+  if (candidates.length > 1) {
+    return new FallbackProvider(candidates);
+  }
+  return candidates[0].provider;
+}
+
+export function buildProviderCandidates(config: ButterclawConfig): Array<{ label: string; provider: Provider }> {
+  return [config, ...config.modelFallbacks.map((fallback) => fallbackConfig(config, fallback))].map((candidate) => ({
+    label: `${candidate.provider}/${candidate.model}`,
+    provider: buildSingleProvider(candidate)
+  }));
+}
+
+function buildSingleProvider(config: ButterclawConfig): Provider {
   switch (config.provider) {
     case "mock":
-      return new MockProvider();
+      return new MockProvider(config.model);
     case "ollama":
       return new OllamaProvider(config.model, config.baseUrl ?? "http://localhost:11434", config.requestTimeoutSeconds);
     case "openai-compatible":
@@ -41,8 +56,44 @@ export function buildProvider(config: ButterclawConfig): Provider {
   }
 }
 
-export class MockProvider implements Provider {
+class FallbackProvider implements Provider {
+  constructor(private readonly candidates: Array<{ label: string; provider: Provider }>) {}
+
   async complete(messages: Message[]): Promise<ProviderResponse> {
+    const errors: string[] = [];
+    for (const [index, candidate] of this.candidates.entries()) {
+      try {
+        const response = await candidate.provider.complete(messages);
+        return index === 0
+          ? response
+          : {
+              ...response,
+              raw: { ...(typeof response.raw === "object" && response.raw ? response.raw : {}), fallbackUsed: candidate.label, fallbackErrors: errors }
+            };
+      } catch (error) {
+        errors.push(`${candidate.label}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    throw new ProviderError(`All model candidates failed:\n${errors.join("\n")}`);
+  }
+}
+
+function fallbackConfig(base: ButterclawConfig, spec: string): ButterclawConfig {
+  const [prefix, ...rest] = spec.split("/");
+  const maybeProvider = prefix as ButterclawConfig["provider"];
+  if (["mock", "ollama", "openai-compatible"].includes(maybeProvider) && rest.length) {
+    return { ...base, provider: maybeProvider, model: rest.join("/") };
+  }
+  return { ...base, model: spec };
+}
+
+export class MockProvider implements Provider {
+  constructor(private readonly model = "mock-local") {}
+
+  async complete(messages: Message[]): Promise<ProviderResponse> {
+    if (this.model.includes("fail")) {
+      throw new ProviderError(`Mock provider forced failure for ${this.model}`);
+    }
     const lastMessage = messages[messages.length - 1]?.content ?? "";
     const last = lastMessage.toLowerCase();
     const systemPrompt = messages.find((message) => message.role === "system")?.content ?? "";

@@ -6,6 +6,7 @@ import { ButterclawConfig } from "./config.js";
 import { registerGitHubTools } from "./github.js";
 import { registerGoogleTools } from "./google.js";
 import { formatScheduleList, ScheduleStore } from "./scheduler.js";
+import { formatTasks, parseTaskStatus, TaskStore } from "./tasks.js";
 import { isToolEnabled } from "./tool-policy.js";
 import { ensureParent, isRecord, truncate } from "./util.js";
 
@@ -347,6 +348,30 @@ export function buildDefaultRegistry(config: ButterclawConfig): ToolRegistry {
           `Token env ${config.gatewayTokenEnv}: ${process.env[config.gatewayTokenEnv] ? "set" : "not set"}`
         ].join("\n")
       })
+    },
+    {
+      name: "task_list",
+      description: "List recent local background task records",
+      args: { status: "optional status filter", kind: "optional kind filter" },
+      handler: (args) => {
+        const status = parseTaskStatus(args.status);
+        if (args.status !== undefined && !status) {
+          return { ok: false, output: "Unknown status. Use queued, running, succeeded, failed, or cancelled." };
+        }
+        return {
+          ok: true,
+          output: formatTasks(new TaskStore(config.taskPath).list({ status, kind: optionalString(args.kind) }))
+        };
+      }
+    },
+    {
+      name: "task_show",
+      description: "Show one local background task by task id or run id",
+      args: { id: "task id or run id" },
+      handler: (args) => {
+        const task = new TaskStore(config.taskPath).get(String(args.id ?? ""));
+        return task ? { ok: true, output: JSON.stringify(task, null, 2) } : { ok: false, output: `No task found: ${String(args.id ?? "")}` };
+      }
     }
   ];
   specs.forEach((spec) => registerIfEnabled(registry, spec, config));

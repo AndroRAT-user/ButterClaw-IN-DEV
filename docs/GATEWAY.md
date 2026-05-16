@@ -38,6 +38,10 @@ HTTP endpoints:
 - `GET /health`
 - `GET /status`
 - `GET /v1/models`
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+- `GET /tasks`
+- `GET /tasks/<id>`
 
 `/v1/models` returns `butterclaw`, `butterclaw/default`, and one entry per saved
 agent profile.
@@ -54,6 +58,30 @@ Accepted token locations:
 - `x-openclaw-token: <token>` for compatibility with existing hook senders
 
 Query-string tokens are rejected.
+
+## OpenAI-Compatible Requests
+
+The gateway accepts small OpenAI-style request bodies and runs them through the
+local Butterclaw agent runtime. This is useful for local tools that already know
+how to call `/v1/chat/completions` or `/v1/responses`.
+
+```cmd
+curl -X POST http://127.0.0.1:18789/v1/chat/completions ^
+  -H "Authorization: Bearer choose-a-local-token" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"messages\":[{\"role\":\"user\",\"content\":\"summarize this workspace\"}]}"
+```
+
+```cmd
+curl -X POST http://127.0.0.1:18789/v1/responses ^
+  -H "Authorization: Bearer choose-a-local-token" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"input\":\"summarize this workspace\"}"
+```
+
+Each compatibility call creates a local task record and returns its `task_id`.
+Chat calls use task kind `compat-chat`; response calls use `compat-responses`.
+Streaming, tool schemas, and multimodal payloads are not implemented yet.
 
 ## Wake Hook
 
@@ -75,6 +103,8 @@ Fields:
 - `session` or `sessionKey`: optional named Butterclaw session
 - `name`: optional schedule name
 
+The response includes the queued schedule job ID and the task record ID.
+
 ## Agent Hook
 
 `POST /hooks/agent` runs an isolated Butterclaw agent turn and returns the final
@@ -92,6 +122,27 @@ Fields:
 - `message` or `text`: required task text
 - `agent`, `agentId`, or `name`: optional saved agent profile
 - `session` or `sessionKey`: optional named Butterclaw session
+
+## Idempotency
+
+Wake and agent hooks accept an `Idempotency-Key` or `x-idempotency-key` header.
+The same key replays the first result from the in-memory gateway process instead
+of creating a duplicate schedule job or agent run. A payload field named
+`idempotencyKey` is also accepted for simple senders that cannot set headers.
+
+## Tasks
+
+Task records are stored in the Butterclaw config folder and can be inspected
+through the CLI or the gateway:
+
+```cmd
+butterclaw tasks list
+butterclaw tasks show task_12345678
+curl http://127.0.0.1:18789/tasks -H "Authorization: Bearer choose-a-local-token"
+```
+
+Records are intentionally compact: status, source, kind, timestamps, optional
+session/run ID, and a truncated output or error.
 
 ## Safety
 

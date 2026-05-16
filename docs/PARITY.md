@@ -29,20 +29,21 @@ channels and the chosen AI model, with local session state and tool execution:
 | Language/runtime | TypeScript/npm ecosystem | Started: TypeScript Node CLI |
 | Local-first runtime | Own data and tool execution locally | Started: CLI runtime, local files, local memory |
 | First-run setup | Guided install and configuration | Started: interactive setup command |
-| Model agnostic | Switch providers and models | Started: mock, Ollama, OpenAI-compatible APIs |
+| Model agnostic | Switch providers and models | Started: mock, Ollama, OpenAI-compatible APIs, ordered model failover |
 | Low-end hardware | Small context and minimal services | Started: no runtime dependencies, short prompts |
-| Skills | Reusable workflows | Started: Markdown skill loading |
+| Skills | Reusable workflows | Started: Markdown skill loading with tool requirement metadata and model-invocation gates |
 | Memory | Persistent context | Started: JSONL local memory with relevance search |
 | Tools | Files, shell, APIs, browser, apps | Started: workspace files and opt-in shell |
 | Permissions | Fine-grained access control | Started: workspace guard, shell deny-by-default, tool profiles, allow rules, deny rules |
 | Channels | WhatsApp, Discord, Telegram, Slack, etc. | Started: Telegram long polling, WhatsApp bridge/cloud/webhook layer |
 | GitHub | Issues, PRs, CI, repo operations | Started: `gh` CLI tools using gh OAuth |
-| Scheduling | Reminders, recurring jobs, background task records | Started: JSON schedule store, one-shot and recurring jobs, run history, foreground daemon |
-| Gateway | Always-on local control plane, health, hooks, HTTP APIs | Started: loopback HTTP gateway, health/status, model listing, authenticated wake/agent hooks |
+| Scheduling | Reminders, recurring jobs, background task records | Started: JSON schedule store, one-shot and recurring jobs, run history, foreground daemon, task ledger entries |
+| Gateway | Always-on local control plane, health, hooks, HTTP APIs | Started: loopback HTTP gateway, health/status, model listing, authenticated wake/agent hooks, idempotency, OpenAI-compatible chat/responses endpoints, task inspection |
 | Browser/app control | Operate real user workflows | Planned: opt-in adapters with explicit permissions |
 | Multi-agent | Delegate and coordinate roles | Started: saved agents, teams, and bounded sub-agents |
-| Local commands | Runtime control without model calls | Started: `/status`, `/tools`, `/tool-policy`, `/new`, `/doctor`, `/backup` |
+| Local commands | Runtime control without model calls | Started: `/status`, `/tools`, `/tool-policy`, `/new`, `/doctor`, `/backup`, `/schedule`, `/tasks`, `/gateway` |
 | Session hygiene | Inspect, reset, compact, and prune state | Started: named sessions with max-turn pruning |
+| Task ledger | Inspect background work and run output | Started: local JSON task records, `/tasks`, `butterclaw tasks`, `task_list`, `task_show` |
 
 ## Design Rules
 
