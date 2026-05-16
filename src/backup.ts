@@ -25,6 +25,7 @@ export function createBackup(config: ButterclawConfig, targetPath?: string): { p
   const excluded = [
     relativeConfigPath(config, config.googleOAuthPath),
     relativeConfigPath(config, config.telegramStatePath),
+    relativeConfigPath(config, config.whatsappStatePath),
     "usage-*.json"
   ].filter((value) => value && value !== ".");
   const backup: ButterclawBackup = {

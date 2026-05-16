@@ -1,9 +1,11 @@
 import childProcess from "node:child_process";
 import fs from "node:fs";
 import { ButterclawConfig } from "./config.js";
+import { githubStatus } from "./github.js";
 import { googleStatus } from "./google.js";
 import { enabledToolNames } from "./tool-policy.js";
 import { trimTrailingSlash } from "./util.js";
+import { whatsappStatus } from "./channels/whatsapp.js";
 
 export interface DoctorCheck {
   label: string;
@@ -34,6 +36,16 @@ export async function doctorChecks(config: ButterclawConfig): Promise<DoctorChec
       detail: `${config.toolProfile} profile, ${enabledToolNames(config).length} tool(s) enabled`
     },
     providerCheck(config),
+    {
+      label: "GitHub",
+      ok: githubStatus(config).startsWith("GitHub OAuth is connected"),
+      detail: githubStatus(config).split("\n", 1)[0]
+    },
+    {
+      label: "WhatsApp",
+      ok: whatsappStatus(config).includes(" is set."),
+      detail: whatsappStatus(config).split("\n").slice(0, 2).join(" | ")
+    },
     {
       label: "Google OAuth",
       ok: google.startsWith("Google OAuth is connected"),

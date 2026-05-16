@@ -35,7 +35,8 @@ channels and the chosen AI model, with local session state and tool execution:
 | Memory | Persistent context | Started: JSONL local memory with relevance search |
 | Tools | Files, shell, APIs, browser, apps | Started: workspace files and opt-in shell |
 | Permissions | Fine-grained access control | Started: workspace guard, shell deny-by-default, tool profiles, allow rules, deny rules |
-| Channels | WhatsApp, Discord, Telegram, Slack, etc. | Started: Telegram long polling |
+| Channels | WhatsApp, Discord, Telegram, Slack, etc. | Started: Telegram long polling, WhatsApp bridge/cloud/webhook layer |
+| GitHub | Issues, PRs, CI, repo operations | Started: `gh` CLI tools using gh OAuth |
 | Scheduling | Reminders, heartbeats, background tasks | Planned: SQLite task queue and scheduler |
 | Browser/app control | Operate real user workflows | Planned: opt-in adapters with explicit permissions |
 | Multi-agent | Delegate and coordinate roles | Started: saved agents, teams, and bounded sub-agents |
@@ -51,5 +52,7 @@ channels and the chosen AI model, with local session state and tool execution:
 - Deny risky tools by default.
 - Let deny rules win over profile and allow rules.
 - Keep local control commands out of model context.
+- Prefer existing OAuth/device login surfaces such as `gh auth login` instead of storing app tokens.
+- Keep channel access fail-closed until explicit allowlists or open mode are configured.
 - Make hosted APIs and local models first-class.
 

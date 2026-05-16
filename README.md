@@ -20,6 +20,9 @@ Telegram channel without requiring a large service stack.
 - resumable named sessions with local transcripts
 - automatic named-session pruning with a configurable turn cap
 - Gmail and Google Calendar tools using Google OAuth
+- GitHub tools through the `gh` CLI, using `gh auth login` OAuth state
+- WhatsApp channel tools with bridge-command and Cloud API modes
+- WhatsApp webhook receiver with OpenClaw-style DM/group policy gates
 - Telegram long-polling channel for phone/chat access
 - local file tools: list, read, write, search, and workspace mapping
 - OpenClaw-inspired tool profiles, allow rules, and deny rules
@@ -88,6 +91,8 @@ butterclaw /status
 butterclaw /tools
 butterclaw /tool-policy
 butterclaw --session butter-build /new
+butterclaw /github
+butterclaw /whatsapp
 ```
 
 Create a skill:
@@ -144,7 +149,25 @@ Profiles:
 
 Groups accepted by `--allow-tool` and `--deny-tool`: `group:read`,
 `group:write`, `group:fs`, `group:runtime`, `group:google`, `group:agents`,
-and `group:all`. Wildcards like `gmail_*` are also supported.
+`group:github`, `group:whatsapp`, `group:channels`, and `group:all`.
+Wildcards like `gmail_*` are also supported.
+
+## GitHub
+
+Butterclaw follows OpenClaw's GitHub skill pattern: use the `gh` CLI for GitHub
+operations, and let `gh auth login` own OAuth. Butterclaw does not store a
+GitHub token.
+
+```cmd
+gh auth login -h github.com -p https -w
+gh auth setup-git
+butterclaw github status
+butterclaw --github-default-repo AndroRAT-user/ButterClaw-IN-DEV github prs
+butterclaw "use github_pr_list to check my open PRs"
+```
+
+GitHub tools: `github_status`, `github_pr_list`, `github_pr_view`,
+`github_issue_list`, `github_issue_create`, and `github_run_list`.
 
 ## Telegram
 
@@ -158,6 +181,51 @@ responds to `/start`, `/help`, `/tools`, `/usage`, and normal task messages.
 Set `--telegram-allowed-chat` to avoid exposing the bot to unexpected chats.
 
 See [docs/TELEGRAM.md](docs/TELEGRAM.md).
+
+## WhatsApp
+
+Butterclaw's WhatsApp layer copies the important OpenClaw logic without pulling
+in the full gateway stack: channel policies, default targets, chunked replies,
+webhook verification, and a status surface.
+
+Bridge mode lets you connect any local WhatsApp sender command:
+
+```cmd
+set BUTTERCLAW_WHATSAPP_SEND_CMD=node C:\path\to\send-whatsapp.js --to {to} --text {text}
+butterclaw --whatsapp-mode bridge --whatsapp-dm-policy open --whatsapp-allowed-chat * whatsapp send +15555550123 "hello from Butterclaw"
+```
+
+Cloud mode uses Meta WhatsApp Cloud API:
+
+```cmd
+set WHATSAPP_CLOUD_TOKEN=your-meta-cloud-api-token
+set WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id
+butterclaw --whatsapp-mode cloud whatsapp send +15555550123 "hello from Butterclaw"
+```
+
+Inbound webhook mode:
+
+```cmd
+set WHATSAPP_VERIFY_TOKEN=choose-a-verify-token
+butterclaw --whatsapp-webhook --whatsapp-dm-policy open --whatsapp-allowed-chat *
+```
+
+The webhook listens on
+`http://127.0.0.1:8787/whatsapp-webhook` by default. It accepts Meta Cloud API
+message webhooks and simple bridge JSON payloads shaped like:
+
+```json
+{"from":"+15555550123","text":"hello","chatType":"direct"}
+```
+
+Policies:
+
+- `--whatsapp-dm-policy pairing|allowlist|open|disabled`
+- `--whatsapp-group-policy allowlist|open|disabled`
+- `--whatsapp-allowed-chat <id>` for DMs
+- `--whatsapp-group-allowed-chat <id>` for groups
+- group messages require a mention by default, using `butterclaw` and
+  `@butterclaw` as mention patterns
 
 ## Google Workspace
 
@@ -276,8 +344,8 @@ Sub-agents do not get their own delegation tool, so delegation stays simple and
 finite.
 
 Local slash commands such as `/status`, `/tools`, `/tool-policy`, `/new`,
-`/doctor`, and `/backup` are handled by the CLI itself and are never sent to the
-model.
+`/doctor`, `/backup`, `/github`, and `/whatsapp` are handled by the CLI itself
+and are never sent to the model.
 
 ## Development
 
@@ -289,6 +357,8 @@ npm test
 ## Safety
 
 Butterclaw confines file tools to the chosen workspace by default, denies shell
-commands by default, and keeps memory local. Agents with tools can still make
-mistakes. Review generated writes, do not run untrusted skills, and keep API
-keys out of prompts and memory.
+commands by default, and keeps memory local. WhatsApp direct chats default to
+pairing-style blocking until you explicitly allow senders or opt into open mode
+with `--whatsapp-allowed-chat *`. Agents with tools can still make mistakes.
+Review generated writes, do not run untrusted skills, and keep API keys out of
+prompts and memory.

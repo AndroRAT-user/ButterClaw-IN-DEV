@@ -6,6 +6,9 @@ import { readJsonFile, writeJsonFile } from "./util.js";
 export type ProviderName = "mock" | "ollama" | "openai-compatible";
 export type ShellMode = "deny" | "allow";
 export type ToolProfile = "minimal" | "coding" | "google" | "full";
+export type ChannelDmPolicy = "pairing" | "allowlist" | "open" | "disabled";
+export type ChannelGroupPolicy = "allowlist" | "open" | "disabled";
+export type WhatsAppMode = "bridge" | "cloud";
 
 export interface ButterclawConfig {
   provider: ProviderName;
@@ -32,6 +35,27 @@ export interface ButterclawConfig {
   telegramPollTimeoutSeconds: number;
   telegramIdleSleepSeconds: number;
   telegramMaxReplyChars: number;
+  githubCliPath: string;
+  githubDefaultRepo: string;
+  githubMaxItems: number;
+  whatsappMode: WhatsAppMode;
+  whatsappGraphApiVersion: string;
+  whatsappCloudTokenEnv: string;
+  whatsappPhoneNumberIdEnv: string;
+  whatsappBridgeCommandEnv: string;
+  whatsappVerifyTokenEnv: string;
+  whatsappDefaultTo: string;
+  whatsappAllowedChats: string[];
+  whatsappGroupAllowedChats: string[];
+  whatsappDmPolicy: ChannelDmPolicy;
+  whatsappGroupPolicy: ChannelGroupPolicy;
+  whatsappRequireMentionInGroups: boolean;
+  whatsappMentionPatterns: string[];
+  whatsappTextChunkLimit: number;
+  whatsappChunkMode: "length" | "newline";
+  whatsappWebhookPath: string;
+  whatsappWebhookPort: number;
+  whatsappStatePath: string;
   googleClientIdEnv: string;
   googleClientSecretEnv: string;
   googleCalendarId: string;
@@ -83,6 +107,27 @@ export function defaultConfig(overrides: Partial<ButterclawConfig> = {}): Butter
     telegramPollTimeoutSeconds: 25,
     telegramIdleSleepSeconds: 1,
     telegramMaxReplyChars: 3900,
+    githubCliPath: "gh",
+    githubDefaultRepo: "",
+    githubMaxItems: 20,
+    whatsappMode: "bridge",
+    whatsappGraphApiVersion: "v25.0",
+    whatsappCloudTokenEnv: "WHATSAPP_CLOUD_TOKEN",
+    whatsappPhoneNumberIdEnv: "WHATSAPP_PHONE_NUMBER_ID",
+    whatsappBridgeCommandEnv: "BUTTERCLAW_WHATSAPP_SEND_CMD",
+    whatsappVerifyTokenEnv: "WHATSAPP_VERIFY_TOKEN",
+    whatsappDefaultTo: "",
+    whatsappAllowedChats: [],
+    whatsappGroupAllowedChats: [],
+    whatsappDmPolicy: "pairing",
+    whatsappGroupPolicy: "allowlist",
+    whatsappRequireMentionInGroups: true,
+    whatsappMentionPatterns: ["butterclaw", "@butterclaw"],
+    whatsappTextChunkLimit: 4000,
+    whatsappChunkMode: "length",
+    whatsappWebhookPath: "/whatsapp-webhook",
+    whatsappWebhookPort: 8787,
+    whatsappStatePath: path.join(configDir, "whatsapp-state.json"),
     googleClientIdEnv: "GOOGLE_CLIENT_ID",
     googleClientSecretEnv: "GOOGLE_CLIENT_SECRET",
     googleCalendarId: "primary",
@@ -108,12 +153,32 @@ export function normalizeConfig(config: ButterclawConfig): ButterclawConfig {
     toolDeny: (config.toolDeny ?? []).map(String),
     sessionMaxTurns: Number.isFinite(config.sessionMaxTurns) ? Math.max(0, Math.trunc(config.sessionMaxTurns)) : 200,
     telegramAllowedChats: config.telegramAllowedChats.map(String),
+    githubCliPath: config.githubCliPath || "gh",
+    githubDefaultRepo: config.githubDefaultRepo || "",
+    githubMaxItems: Number.isFinite(config.githubMaxItems) ? Math.max(1, Math.trunc(config.githubMaxItems)) : 20,
+    whatsappMode: config.whatsappMode ?? "bridge",
+    whatsappGraphApiVersion: config.whatsappGraphApiVersion || "v25.0",
+    whatsappCloudTokenEnv: config.whatsappCloudTokenEnv || "WHATSAPP_CLOUD_TOKEN",
+    whatsappPhoneNumberIdEnv: config.whatsappPhoneNumberIdEnv || "WHATSAPP_PHONE_NUMBER_ID",
+    whatsappBridgeCommandEnv: config.whatsappBridgeCommandEnv || "BUTTERCLAW_WHATSAPP_SEND_CMD",
+    whatsappVerifyTokenEnv: config.whatsappVerifyTokenEnv || "WHATSAPP_VERIFY_TOKEN",
+    whatsappAllowedChats: (config.whatsappAllowedChats ?? []).map(String),
+    whatsappGroupAllowedChats: (config.whatsappGroupAllowedChats ?? []).map(String),
+    whatsappDmPolicy: config.whatsappDmPolicy ?? "pairing",
+    whatsappGroupPolicy: config.whatsappGroupPolicy ?? "allowlist",
+    whatsappRequireMentionInGroups: config.whatsappRequireMentionInGroups ?? true,
+    whatsappMentionPatterns: (config.whatsappMentionPatterns ?? ["butterclaw", "@butterclaw"]).map(String),
+    whatsappTextChunkLimit: Number.isFinite(config.whatsappTextChunkLimit) ? Math.max(100, Math.trunc(config.whatsappTextChunkLimit)) : 4000,
+    whatsappChunkMode: config.whatsappChunkMode ?? "length",
+    whatsappWebhookPath: config.whatsappWebhookPath || "/whatsapp-webhook",
+    whatsappWebhookPort: Number.isFinite(config.whatsappWebhookPort) ? Math.max(1, Math.trunc(config.whatsappWebhookPort)) : 8787,
     agentsDir: path.resolve(config.agentsDir || path.join(configDir, "agents")),
     teamsDir: path.resolve(config.teamsDir || path.join(configDir, "teams")),
     sessionsDir: path.resolve(config.sessionsDir || path.join(configDir, "sessions")),
     skillsDir: path.resolve(config.skillsDir || path.join(configDir, "skills")),
     memoryPath: path.resolve(config.memoryPath || path.join(configDir, "memory.jsonl")),
     googleOAuthPath: path.resolve(config.googleOAuthPath || path.join(configDir, "google-oauth.json")),
+    whatsappStatePath: path.resolve(config.whatsappStatePath || path.join(configDir, "whatsapp-state.json")),
     telegramStatePath: path.resolve(config.telegramStatePath || path.join(configDir, "telegram-state.json"))
   };
 }

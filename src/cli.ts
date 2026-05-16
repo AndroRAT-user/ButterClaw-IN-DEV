@@ -5,8 +5,10 @@ import { ButterclawAgent } from "./agent.js";
 import { AgentProfile, AgentStore, applyAgentProfile } from "./agents.js";
 import { createBackup } from "./backup.js";
 import { TelegramChannel, TelegramError } from "./channels/telegram.js";
+import { WhatsAppChannel, WhatsAppError, whatsappStatus } from "./channels/whatsapp.js";
 import { ButterclawConfig, configPath, loadConfig, saveConfig } from "./config.js";
 import { doctorChecks } from "./doctor.js";
+import { githubStatus } from "./github.js";
 import { GOOGLE_WORKSPACE_SCOPES, googleStatus, loginGoogle, logoutGoogle } from "./google.js";
 import { SessionStore } from "./sessions.js";
 import { runSetup } from "./setup.js";
@@ -41,6 +43,7 @@ interface Args {
   allowOutsideWorkspace: boolean;
   telegramPoll: boolean;
   telegramOnce: boolean;
+  whatsappWebhook: boolean;
   telegramTokenEnv?: string;
   telegramBaseUrl?: string;
   telegramAllowedChat: string[];
@@ -49,6 +52,20 @@ interface Args {
   googleClientIdEnv?: string;
   googleClientSecretEnv?: string;
   googleCalendarId?: string;
+  githubCliPath?: string;
+  githubDefaultRepo?: string;
+  githubMaxItems?: number;
+  whatsappMode?: ButterclawConfig["whatsappMode"];
+  whatsappDefaultTo?: string;
+  whatsappAllowedChat: string[];
+  whatsappGroupAllowedChat: string[];
+  whatsappDmPolicy?: ButterclawConfig["whatsappDmPolicy"];
+  whatsappGroupPolicy?: ButterclawConfig["whatsappGroupPolicy"];
+  whatsappMentionPattern: string[];
+  whatsappTextChunkLimit?: number;
+  whatsappWebhookPath?: string;
+  whatsappWebhookPort?: number;
+  whatsappGraphApiVersion?: string;
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -86,6 +103,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === "google") {
     return handleAsyncCommand(() => runGoogleCommand(config, args.task.slice(1)));
   }
+  if (command === "github" || command === "gh") {
+    return handleAsyncCommand(() => runGitHubCommand(config, args.task.slice(1)));
+  }
+  if (command === "whatsapp" || command === "wa") {
+    return handleAsyncCommand(() => runWhatsAppCommand(config, args.task.slice(1)));
+  }
   const agentProfile = args.agent ? new AgentStore(config.agentsDir).get(args.agent) : null;
   if (args.agent && !agentProfile) {
     console.error(`Butterclaw failed: Unknown agent: ${args.agent}`);
@@ -110,6 +133,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (args.telegramPoll) {
     return runTelegram(config, args.telegramOnce, agentProfile ?? undefined);
   }
+  if (args.whatsappWebhook) {
+    return runWhatsAppWebhook(config, agentProfile ?? undefined);
+  }
 
   const task = args.task.join(" ").trim();
   if (!task) {
@@ -132,7 +158,11 @@ export function parseArgs(argv: string[]): Args {
     allowOutsideWorkspace: false,
     telegramPoll: false,
     telegramOnce: false,
-    telegramAllowedChat: []
+    whatsappWebhook: false,
+    telegramAllowedChat: [],
+    whatsappAllowedChat: [],
+    whatsappGroupAllowedChat: [],
+    whatsappMentionPattern: []
   };
 
   const valueOptions: Record<string, (value: string) => void> = {
@@ -159,7 +189,21 @@ export function parseArgs(argv: string[]): Args {
     "--telegram-idle-sleep": (value) => (args.telegramIdleSleep = Number(value)),
     "--google-client-id-env": (value) => (args.googleClientIdEnv = value),
     "--google-client-secret-env": (value) => (args.googleClientSecretEnv = value),
-    "--google-calendar-id": (value) => (args.googleCalendarId = value)
+    "--google-calendar-id": (value) => (args.googleCalendarId = value),
+    "--github-cli-path": (value) => (args.githubCliPath = value),
+    "--github-default-repo": (value) => (args.githubDefaultRepo = value),
+    "--github-max-items": (value) => (args.githubMaxItems = Number(value)),
+    "--whatsapp-mode": (value) => (args.whatsappMode = value as ButterclawConfig["whatsappMode"]),
+    "--whatsapp-default-to": (value) => (args.whatsappDefaultTo = value),
+    "--whatsapp-allowed-chat": (value) => args.whatsappAllowedChat.push(...splitCsv(value)),
+    "--whatsapp-group-allowed-chat": (value) => args.whatsappGroupAllowedChat.push(...splitCsv(value)),
+    "--whatsapp-dm-policy": (value) => (args.whatsappDmPolicy = value as ButterclawConfig["whatsappDmPolicy"]),
+    "--whatsapp-group-policy": (value) => (args.whatsappGroupPolicy = value as ButterclawConfig["whatsappGroupPolicy"]),
+    "--whatsapp-mention-pattern": (value) => args.whatsappMentionPattern.push(...splitCsv(value)),
+    "--whatsapp-text-chunk-limit": (value) => (args.whatsappTextChunkLimit = Number(value)),
+    "--whatsapp-webhook-path": (value) => (args.whatsappWebhookPath = value),
+    "--whatsapp-webhook-port": (value) => (args.whatsappWebhookPort = Number(value)),
+    "--whatsapp-graph-api-version": (value) => (args.whatsappGraphApiVersion = value)
   };
   const flagOptions: Record<string, () => void> = {
     "--setup": () => (args.setup = true),
@@ -169,7 +213,8 @@ export function parseArgs(argv: string[]): Args {
     "--allow-shell": () => (args.allowShell = true),
     "--allow-outside-workspace": () => (args.allowOutsideWorkspace = true),
     "--telegram-poll": () => (args.telegramPoll = true),
-    "--telegram-once": () => (args.telegramOnce = true)
+    "--telegram-once": () => (args.telegramOnce = true),
+    "--whatsapp-webhook": () => (args.whatsappWebhook = true)
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -216,6 +261,20 @@ function applyOverrides(config: ButterclawConfig, args: Args): void {
   if (args.googleClientIdEnv) config.googleClientIdEnv = args.googleClientIdEnv;
   if (args.googleClientSecretEnv) config.googleClientSecretEnv = args.googleClientSecretEnv;
   if (args.googleCalendarId) config.googleCalendarId = args.googleCalendarId;
+  if (args.githubCliPath) config.githubCliPath = args.githubCliPath;
+  if (args.githubDefaultRepo) config.githubDefaultRepo = args.githubDefaultRepo;
+  if (args.githubMaxItems !== undefined) config.githubMaxItems = args.githubMaxItems;
+  if (args.whatsappMode) config.whatsappMode = args.whatsappMode;
+  if (args.whatsappDefaultTo) config.whatsappDefaultTo = args.whatsappDefaultTo;
+  if (args.whatsappAllowedChat.length) config.whatsappAllowedChats = args.whatsappAllowedChat;
+  if (args.whatsappGroupAllowedChat.length) config.whatsappGroupAllowedChats = args.whatsappGroupAllowedChat;
+  if (args.whatsappDmPolicy) config.whatsappDmPolicy = args.whatsappDmPolicy;
+  if (args.whatsappGroupPolicy) config.whatsappGroupPolicy = args.whatsappGroupPolicy;
+  if (args.whatsappMentionPattern.length) config.whatsappMentionPatterns = args.whatsappMentionPattern;
+  if (args.whatsappTextChunkLimit !== undefined) config.whatsappTextChunkLimit = args.whatsappTextChunkLimit;
+  if (args.whatsappWebhookPath) config.whatsappWebhookPath = args.whatsappWebhookPath;
+  if (args.whatsappWebhookPort !== undefined) config.whatsappWebhookPort = args.whatsappWebhookPort;
+  if (args.whatsappGraphApiVersion) config.whatsappGraphApiVersion = args.whatsappGraphApiVersion;
 }
 
 async function runOnce(config: ButterclawConfig, task: string, agentProfile?: AgentProfile, sessionName?: string): Promise<number> {
@@ -268,6 +327,16 @@ async function repl(config: ButterclawConfig, agentProfile?: AgentProfile, sessi
   }
 }
 
+async function runWhatsAppWebhook(config: ButterclawConfig, agentProfile?: AgentProfile): Promise<number> {
+  try {
+    return await new WhatsAppChannel(config).runWebhook((sessionName) => new ButterclawAgent(config, { ...(agentProfile ? { agentProfile } : {}), sessionName }));
+  } catch (error) {
+    const prefix = error instanceof WhatsAppError ? "WhatsApp failed" : "Butterclaw WhatsApp webhook failed";
+    console.error(`${prefix}: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
+}
+
 export async function runSlashCommand(
   config: ButterclawConfig,
   rawInput: string,
@@ -291,7 +360,9 @@ export async function runSlashCommand(
         `${button("/new")} clear the current named session`,
         `${button("/reset")} same as /new`,
         `${button("/doctor")} run local diagnostics`,
-        `${button("/backup")} save local agents, teams, skills, sessions, and memory`
+        `${button("/backup")} save local agents, teams, skills, sessions, and memory`,
+        `${button("/github")} show gh OAuth and repo status`,
+        `${button("/whatsapp")} show WhatsApp channel status`
       ])
     );
     return true;
@@ -338,6 +409,16 @@ export async function runSlashCommand(
 
   if (command === "backup" || command === "export") {
     runBackupCommand(config, rest ? ["create", rest] : ["create"], outputFunc);
+    return true;
+  }
+
+  if (command === "github" || command === "gh") {
+    outputFunc(panel("GitHub", githubStatus(config).split("\n")));
+    return true;
+  }
+
+  if (command === "whatsapp" || command === "wa") {
+    outputFunc(panel("WhatsApp", whatsappStatus(config).split("\n")));
     return true;
   }
 
@@ -539,6 +620,61 @@ export async function runGoogleCommand(config: ButterclawConfig, argv: string[],
     return 0;
   }
   throw new Error("Usage: butterclaw google login [--client-id id] [--client-secret secret] [--scopes scope1,scope2] | status | logout");
+}
+
+export async function runGitHubCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): Promise<number> {
+  const command = argv[0]?.toLowerCase() ?? "status";
+  const agent = new ButterclawAgent(config);
+  if (command === "status") {
+    outputFunc(panel("GitHub", githubStatus(config).split("\n")));
+    return 0;
+  }
+  if (command === "prs" || command === "pulls") {
+    const result = await agent.registry.call("github_pr_list", cliRepoArgs(config, argv.slice(1)));
+    outputFunc(result.output);
+    return result.ok ? 0 : 1;
+  }
+  if (command === "pr") {
+    const result = await agent.registry.call("github_pr_view", { ...cliRepoArgs(config, argv.slice(2)), pr: argv[1] ?? "" });
+    outputFunc(result.output);
+    return result.ok ? 0 : 1;
+  }
+  if (command === "issues") {
+    const result = await agent.registry.call("github_issue_list", cliRepoArgs(config, argv.slice(1)));
+    outputFunc(result.output);
+    return result.ok ? 0 : 1;
+  }
+  if (command === "runs") {
+    const result = await agent.registry.call("github_run_list", cliRepoArgs(config, argv.slice(1)));
+    outputFunc(result.output);
+    return result.ok ? 0 : 1;
+  }
+  throw new Error("Usage: butterclaw github status | prs [repo] | pr <number|url> [repo] | issues [repo] | runs [repo]");
+}
+
+export async function runWhatsAppCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): Promise<number> {
+  const command = argv[0]?.toLowerCase() ?? "status";
+  const channel = new WhatsAppChannel(config);
+  if (command === "status") {
+    outputFunc(panel("WhatsApp", whatsappStatus(config).split("\n")));
+    return 0;
+  }
+  if (command === "send") {
+    const to = argv[1] ?? config.whatsappDefaultTo;
+    const text = argv.slice(2).join(" ");
+    const result = await channel.sendTool({ to, text });
+    outputFunc(result.ok ? successLine(result.output) : result.output);
+    return result.ok ? 0 : 1;
+  }
+  if (command === "webhook") {
+    return runWhatsAppWebhook(config);
+  }
+  throw new Error("Usage: butterclaw whatsapp status | send <to> <text...> | webhook");
+}
+
+function cliRepoArgs(config: ButterclawConfig, argv: string[]): Record<string, unknown> {
+  const repo = argv.find((arg) => arg.includes("/")) ?? config.githubDefaultRepo;
+  return repo ? { repo } : {};
 }
 
 function handleCommand(command: () => number): number {

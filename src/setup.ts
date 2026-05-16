@@ -94,6 +94,7 @@ export function alignConfigDirWithCustomPath(config: ButterclawConfig, targetPat
   config.sessionsDir = path.join(config.configDir, "sessions");
   config.skillsDir = path.join(config.configDir, "skills");
   config.memoryPath = path.join(config.configDir, "memory.jsonl");
+  config.whatsappStatePath = path.join(config.configDir, "whatsapp-state.json");
   config.telegramStatePath = path.join(config.configDir, "telegram-state.json");
 }
 
@@ -132,6 +133,7 @@ export function createLocalFiles(config: ButterclawConfig): void {
   ensureParent(config.memoryPath);
   fs.closeSync(fs.openSync(config.memoryPath, "a"));
   ensureParent(config.telegramStatePath);
+  ensureParent(config.whatsappStatePath);
 }
 
 async function configureProvider(config: ButterclawConfig, inputFunc: InputFunc, outputFunc: OutputFunc): Promise<void> {

@@ -1,7 +1,9 @@
 import childProcess from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { registerWhatsAppTools } from "./channels/whatsapp.js";
 import { ButterclawConfig } from "./config.js";
+import { registerGitHubTools } from "./github.js";
 import { registerGoogleTools } from "./google.js";
 import { isToolEnabled } from "./tool-policy.js";
 import { ensureParent, isRecord, truncate } from "./util.js";
@@ -335,6 +337,18 @@ export function buildDefaultRegistry(config: ButterclawConfig): ToolRegistry {
   ];
   specs.forEach((spec) => registerIfEnabled(registry, spec, config));
   registerGoogleTools(
+    {
+      register: (spec) => registerIfEnabled(registry, spec, config)
+    },
+    config
+  );
+  registerGitHubTools(
+    {
+      register: (spec) => registerIfEnabled(registry, spec, config)
+    },
+    config
+  );
+  registerWhatsAppTools(
     {
       register: (spec) => registerIfEnabled(registry, spec, config)
     },

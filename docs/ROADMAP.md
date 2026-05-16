@@ -17,6 +17,8 @@ powers with fewer moving pieces.
 - resumable named sessions
 - named-session pruning
 - Gmail and Google Calendar tools
+- GitHub tools through gh OAuth
+- WhatsApp bridge/cloud/webhook channel
 - workspace-confined file tools and workspace mapping
 - tool profiles with allow and deny rules
 - local slash commands
@@ -47,10 +49,10 @@ powers with fewer moving pieces.
 
 ## Milestone 3: Practical Integrations
 
-- Telegram command polish and attachment handling
+- Telegram and WhatsApp command polish and attachment handling
 - email draft mode
 - calendar read and propose mode
-- GitHub issues and pull request summaries
+- deeper GitHub issue, pull request, and CI workflows
 - browser automation through a separate opt-in adapter
 - local document indexing
 - simple CRM/contact CSV workflows

@@ -64,6 +64,7 @@ export function renderHelp(version: string): string {
     "",
     commandRow(["setup", "doctor", "backup", "agent"]),
     commandRow(["team", "skill", "session", "google"]),
+    commandRow(["github", "whatsapp"]),
     "",
     "Usage:",
     "  butterclaw [options] [task...]",
@@ -98,6 +99,16 @@ export function renderHelp(version: string): string {
     "  --google-client-id-env <name>",
     "  --google-client-secret-env <name>",
     "  --google-calendar-id <id>",
+    "  --github-default-repo <owner/repo>",
+    "  --github-cli-path <path>",
+    "  --whatsapp-mode <bridge|cloud>",
+    "  --whatsapp-allowed-chat <id>",
+    "  --whatsapp-group-allowed-chat <id>",
+    "  --whatsapp-dm-policy <pairing|allowlist|open|disabled>",
+    "  --whatsapp-group-policy <allowlist|open|disabled>",
+    "  --whatsapp-default-to <id>",
+    "  --whatsapp-webhook",
+    "  --whatsapp-webhook-port <number>",
     "",
     "Commands:",
     "  butterclaw agent list",
@@ -114,9 +125,14 @@ export function renderHelp(version: string): string {
     "  butterclaw google login",
     "  butterclaw google status",
     "  butterclaw google logout",
+    "  butterclaw github status",
+    "  butterclaw github prs [owner/repo]",
+    "  butterclaw whatsapp status",
+    "  butterclaw whatsapp send <to> <text...>",
+    "  butterclaw whatsapp webhook",
     "",
     "Local slash commands:",
-    "  /status  /tools  /tool-policy  /new  /doctor  /backup"
+    "  /status  /tools  /tool-policy  /new  /doctor  /backup  /github  /whatsapp"
   ]);
 }
 

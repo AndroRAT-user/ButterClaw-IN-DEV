@@ -38,6 +38,15 @@ test("cli parser reads flags and task text", () => {
     "GOOGLE_SECRET",
     "--google-calendar-id",
     "primary",
+    "--github-default-repo",
+    "owner/repo",
+    "--whatsapp-mode",
+    "cloud",
+    "--whatsapp-allowed-chat",
+    "1555,1666",
+    "--whatsapp-group-policy",
+    "open",
+    "--whatsapp-webhook",
     "list",
     "files"
   ]);
@@ -53,6 +62,11 @@ test("cli parser reads flags and task text", () => {
   assert.equal(args.googleClientIdEnv, "GOOGLE_CLIENT");
   assert.equal(args.googleClientSecretEnv, "GOOGLE_SECRET");
   assert.equal(args.googleCalendarId, "primary");
+  assert.equal(args.githubDefaultRepo, "owner/repo");
+  assert.equal(args.whatsappMode, "cloud");
+  assert.deepEqual(args.whatsappAllowedChat, ["1555", "1666"]);
+  assert.equal(args.whatsappGroupPolicy, "open");
+  assert.equal(args.whatsappWebhook, true);
   assert.deepEqual(args.task, ["list", "files"]);
 });
 
@@ -98,6 +112,7 @@ test("missing custom config defaults nearby", () => {
   assert.equal(config.teamsDir, path.join(root, "custom", "teams"));
   assert.equal(config.sessionsDir, path.join(root, "custom", "sessions"));
   assert.equal(config.skillsDir, path.join(root, "custom", "skills"));
+  assert.equal(config.whatsappStatePath, path.join(root, "custom", "whatsapp-state.json"));
 });
 
 test("openai-compatible setup defaults to OpenRouter gpt-oss free model", async () => {

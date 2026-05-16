@@ -161,6 +161,7 @@ test("backup command saves local state without OAuth tokens", () => {
   new SessionStore(config.sessionsDir).append("build", "user", "ship it");
   fs.appendFileSync(config.memoryPath, JSON.stringify({ role: "user", content: "remember me" }) + "\n", "utf8");
   fs.writeFileSync(config.googleOAuthPath, JSON.stringify({ refresh_token: "secret-refresh-token" }), "utf8");
+  fs.writeFileSync(config.whatsappStatePath, JSON.stringify({ lastFrom: "secret-chat" }), "utf8");
   const backupPath = path.join(config.workspace, "backup.json");
   const lines: string[] = [];
 
@@ -175,7 +176,9 @@ test("backup command saves local state without OAuth tokens", () => {
   assert.equal(backup.files.some((file) => file.path === "sessions/build.jsonl"), true);
   assert.equal(backup.files.some((file) => file.path === "memory.jsonl"), true);
   assert.equal(backupText.includes("secret-refresh-token"), false);
+  assert.equal(backupText.includes("secret-chat"), false);
   assert.equal(backup.excluded.includes("google-oauth.json"), true);
+  assert.equal(backup.excluded.includes("whatsapp-state.json"), true);
 });
 
 test("active agent profile is included in the system prompt", async () => {
