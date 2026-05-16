@@ -83,6 +83,7 @@ export function renderHelp(version: string): string {
     "  --workspace <path>",
     "  --max-steps <number>",
     "  --max-context-chars <number>",
+    "  --request-timeout-seconds <number>",
     "  --session-max-turns <number>",
     "  --tool-profile <minimal|coding|google|full>",
     "  --allow-tool <name|group>",

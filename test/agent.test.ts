@@ -5,7 +5,16 @@ import path from "node:path";
 import test from "node:test";
 import { ButterclawAgent, buildSystemPrompt, parseToolCall } from "../src/agent.js";
 import { defaultConfig } from "../src/config.js";
+import { Message, Provider, ProviderResponse } from "../src/providers.js";
 import { buildDefaultRegistry } from "../src/tools.js";
+
+class ScriptedProvider implements Provider {
+  constructor(private readonly responses: string[]) {}
+
+  async complete(_messages: Message[]): Promise<ProviderResponse> {
+    return { content: this.responses.shift() ?? "" };
+  }
+}
 
 test("parseToolCall reads JSON tool calls", () => {
   assert.deepEqual(parseToolCall('{"tool":"list_dir","args":{"path":"."}}'), {
@@ -76,6 +85,43 @@ test("agent run keeps delegated reports visible in the final answer", async () =
   assert.match(result.answer, /Sub-agent scout finished/);
   assert.match(result.answer, /hello\.txt/);
   assert.doesNotMatch(result.answer, /Unknown tool: delegate_task/);
+});
+
+test("empty provider responses are retried before returning a fallback", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "butterclaw-agent-"));
+  const config = defaultConfig({
+    workspace: root,
+    configDir: path.join(root, ".config"),
+    maxSteps: 2,
+    memoryPath: path.join(root, ".config", "memory.jsonl"),
+    skillsDir: path.join(root, ".config", "skills"),
+    telegramStatePath: path.join(root, ".config", "telegram-state.json")
+  });
+
+  const result = await new ButterclawAgent(config, { provider: new ScriptedProvider(["", "recovered"]) }).run("say hello");
+
+  assert.equal(result.answer, "recovered");
+  assert.equal(result.steps, 2);
+});
+
+test("empty answer after a tool keeps the tool result visible", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "butterclaw-agent-"));
+  fs.writeFileSync(path.join(root, "hello.txt"), "hi", "utf8");
+  const config = defaultConfig({
+    workspace: root,
+    configDir: path.join(root, ".config"),
+    maxSteps: 2,
+    memoryPath: path.join(root, ".config", "memory.jsonl"),
+    skillsDir: path.join(root, ".config", "skills"),
+    telegramStatePath: path.join(root, ".config", "telegram-state.json")
+  });
+
+  const result = await new ButterclawAgent(config, {
+    provider: new ScriptedProvider(['{"tool":"list_dir","args":{"path":"."}}', ""])
+  }).run("list files");
+
+  assert.match(result.answer, /empty answer/);
+  assert.match(result.answer, /hello\.txt/);
 });
 
 test("system prompt only mentions delegation when the tool is present", () => {

@@ -35,6 +35,7 @@ interface Args {
   workspace?: string;
   maxSteps?: number;
   maxContextChars?: number;
+  requestTimeoutSeconds?: number;
   sessionMaxTurns?: number;
   toolProfile?: ButterclawConfig["toolProfile"];
   toolAllow: string[];
@@ -182,6 +183,8 @@ export function parseArgs(argv: string[]): Args {
     "--workspace": (value) => (args.workspace = value),
     "--max-steps": (value) => (args.maxSteps = Number(value)),
     "--max-context-chars": (value) => (args.maxContextChars = Number(value)),
+    "--request-timeout-seconds": (value) => (args.requestTimeoutSeconds = Number(value)),
+    "--timeout": (value) => (args.requestTimeoutSeconds = Number(value)),
     "--session-max-turns": (value) => (args.sessionMaxTurns = Number(value)),
     "--tool-profile": (value) => (args.toolProfile = value as ButterclawConfig["toolProfile"]),
     "--allow-tool": (value) => args.toolAllow.push(...splitCsv(value)),
@@ -253,6 +256,7 @@ function applyOverrides(config: ButterclawConfig, args: Args): void {
   if (args.workspace) config.workspace = args.workspace;
   if (args.maxSteps !== undefined) config.maxSteps = args.maxSteps;
   if (args.maxContextChars !== undefined) config.maxContextChars = args.maxContextChars;
+  if (args.requestTimeoutSeconds !== undefined) config.requestTimeoutSeconds = args.requestTimeoutSeconds;
   if (args.sessionMaxTurns !== undefined) config.sessionMaxTurns = args.sessionMaxTurns;
   if (args.toolProfile) config.toolProfile = args.toolProfile;
   if (args.toolAllow.length) config.toolAllow = [...config.toolAllow, ...args.toolAllow];
@@ -285,6 +289,11 @@ function applyOverrides(config: ButterclawConfig, args: Args): void {
 
 async function runOnce(config: ButterclawConfig, task: string, agentProfile?: AgentProfile, sessionName?: string): Promise<number> {
   try {
+    const localHelp = localHelpForTask(task);
+    if (localHelp) {
+      console.log(localHelp);
+      return 0;
+    }
     const agent = new ButterclawAgent(config, {
       ...(agentProfile ? { agentProfile } : {}),
       ...(sessionName ? { sessionName } : {})
@@ -293,10 +302,10 @@ async function runOnce(config: ButterclawConfig, task: string, agentProfile?: Ag
       return 0;
     }
     const result = await agent.run(task);
-    console.log(result.answer);
+    console.log(result.answer || "Butterclaw finished, but the provider returned an empty answer.");
     return 0;
   } catch (error) {
-    console.error(`Butterclaw failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(formatCliError(error));
     return 1;
   }
 }
@@ -321,12 +330,30 @@ async function repl(config: ButterclawConfig, agentProfile?: AgentProfile, sessi
   });
   try {
     while (true) {
-      const task = (await rl.question("> ")).trim();
+      let task: string;
+      try {
+        task = (await rl.question("> ")).trim();
+      } catch (error) {
+        if (isAbortError(error)) {
+          console.log("");
+          return 0;
+        }
+        throw error;
+      }
       if (!task) continue;
       if (task === "exit" || task === "quit") return 0;
+      const localHelp = localHelpForTask(task);
+      if (localHelp) {
+        console.log(localHelp);
+        continue;
+      }
       if (await runSlashCommand(config, task, { agent, agentProfile, sessionName })) continue;
-      const result = await agent.run(task);
-      console.log(result.answer);
+      try {
+        const result = await agent.run(task);
+        console.log(result.answer || "Butterclaw finished, but the provider returned an empty answer.");
+      } catch (error) {
+        console.error(formatCliError(error));
+      }
     }
   } finally {
     rl.close();
@@ -434,7 +461,7 @@ export async function runSlashCommand(
 
 export function runAgentCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): number {
   const store = new AgentStore(config.agentsDir);
-  const command = argv[0]?.toLowerCase() ?? "list";
+  const command = normalizeListCommand(argv[0]?.toLowerCase() ?? "list");
   if (command === "list") {
     const agents = store.list();
     outputFunc(
@@ -444,6 +471,10 @@ export function runAgentCommand(config: ButterclawConfig, argv: string[], output
         "No agents yet."
       )
     );
+    return 0;
+  }
+  if (command === "help") {
+    outputFunc(agentHelp());
     return 0;
   }
   if (command === "show") {
@@ -491,7 +522,7 @@ export async function runAgentRunCommand(config: ButterclawConfig, argv: string[
 
 export function runTeamCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): number {
   const store = new TeamStore(config.teamsDir);
-  const command = argv[0]?.toLowerCase() ?? "list";
+  const command = normalizeListCommand(argv[0]?.toLowerCase() ?? "list");
   if (command === "list") {
     const teams = store.list();
     outputFunc(
@@ -501,6 +532,10 @@ export function runTeamCommand(config: ButterclawConfig, argv: string[], outputF
         "No teams yet."
       )
     );
+    return 0;
+  }
+  if (command === "help") {
+    outputFunc(teamHelp());
     return 0;
   }
   if (command === "show") {
@@ -718,7 +753,7 @@ function handleCommand(command: () => number): number {
   try {
     return command();
   } catch (error) {
-    console.error(`Butterclaw failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(formatCliError(error));
     return 1;
   }
 }
@@ -727,7 +762,7 @@ async function handleAsyncCommand(command: () => Promise<number>): Promise<numbe
   try {
     return await command();
   } catch (error) {
-    console.error(`Butterclaw failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(formatCliError(error));
     return 1;
   }
 }
@@ -754,13 +789,13 @@ function parseCommandOptions(argv: string[]): { positionals: string[]; values: R
 }
 
 function isAgentRunCommand(argv: string[]): boolean {
-  const command = argv[0]?.toLowerCase();
-  return Boolean(command && command !== "list" && command !== "show" && command !== "create");
+  const command = normalizeListCommand(argv[0]?.toLowerCase() ?? "");
+  return Boolean(command && command !== "list" && command !== "show" && command !== "create" && command !== "help");
 }
 
 function isTeamRunCommand(argv: string[]): boolean {
-  const command = argv[0]?.toLowerCase();
-  return Boolean(command && command !== "list" && command !== "show" && command !== "create");
+  const command = normalizeListCommand(argv[0]?.toLowerCase() ?? "");
+  return Boolean(command && command !== "list" && command !== "show" && command !== "create" && command !== "help");
 }
 
 function parseRunTarget(argv: string[]): { name: string; task: string } {
@@ -773,4 +808,64 @@ function parseRunTarget(argv: string[]): { name: string; task: string } {
 
 function printHelp(): void {
   console.log(renderHelp("butterclaw 0.2.0"));
+}
+
+function normalizeListCommand(command: string): string {
+  if (command === "--list" || command === "-l" || command === "ls") {
+    return "list";
+  }
+  if (command === "--help" || command === "-h" || command === "?") {
+    return "help";
+  }
+  return command;
+}
+
+export function localHelpForTask(task: string): string | null {
+  const lower = task.toLowerCase();
+  const asksAboutAgents = /\bagents?\b/.test(lower);
+  const asksForHelp = /\b(configure|create|run|use|setup|help|command|commands)\b/.test(lower) || lower.includes("how can i");
+  if (asksAboutAgents && asksForHelp) {
+    return agentHelp(extractWindowsPath(task));
+  }
+  return null;
+}
+
+function agentHelp(workspacePath?: string | null): string {
+  const rows = [
+    "Agents are saved JSON profiles in your Butterclaw config folder, not butterclaw.yaml.",
+    workspacePath ? `cd /d ${workspacePath}` : "cd /d C:\\path\\to\\your\\project",
+    'butterclaw agent create reviewer --description "Reviews code" --instructions "Find bugs, missing tests, and risky behavior first."',
+    'butterclaw agent run reviewer "review this project"',
+    'butterclaw --agent reviewer "review this project"',
+    "butterclaw agent list",
+    "butterclaw agent show reviewer",
+    "Use notepad <file> on Windows if you need to edit a file; nano and touch are not default cmd commands."
+  ];
+  return panel("Agent Commands", rows);
+}
+
+function teamHelp(): string {
+  return panel("Team Commands", [
+    "Teams run several saved agents on the same task.",
+    'butterclaw team create review-crew --agents debugger,reviewer --description "Debug and review together"',
+    'butterclaw team run review-crew "inspect this project"',
+    "butterclaw team list",
+    "butterclaw team show review-crew"
+  ]);
+}
+
+function extractWindowsPath(task: string): string | null {
+  const match = task.match(/[A-Za-z]:\\[^\r\n"]+/);
+  return match ? match[0].replace(/[>\s.]+$/g, "") : null;
+}
+
+function formatCliError(error: unknown): string {
+  if (isAbortError(error)) {
+    return "Butterclaw stopped.";
+  }
+  return `Butterclaw failed: ${error instanceof Error ? error.message : String(error)}`;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "AbortError" || error.message.includes("Aborted with Ctrl+C"));
 }

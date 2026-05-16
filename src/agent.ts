@@ -61,17 +61,29 @@ export class ButterclawAgent {
   async run(userInput: string): Promise<AgentRun> {
     let messages = this.buildMessages(userInput);
     let lastDelegationOutput: string | null = null;
+    let lastToolOutput: string | null = null;
     for (let step = 1; step <= this.config.maxSteps; step += 1) {
       const response = await this.provider.complete(messages);
       this.usage.record(response);
       const toolCall = parseToolCall(response.content);
       if (!toolCall) {
-        const answer = withDelegationReport(response.content, lastDelegationOutput);
+        if (!response.content.trim() && step < this.config.maxSteps) {
+          messages.push({ role: "assistant", content: response.content });
+          messages.push({
+            role: "user",
+            content:
+              "Your previous response was empty. Continue with a non-empty answer. If the task needs workspace changes, call a tool; otherwise report what you found."
+          });
+          messages = trimMessages(messages, this.config.maxContextChars);
+          continue;
+        }
+        const answer = withDelegationReport(response.content, lastDelegationOutput, lastToolOutput);
         this.finishRun(userInput, answer);
         return { answer, steps: step, usage: this.usage.current() };
       }
 
       const result = await this.registry.call(toolCall.tool, toolCall.args ?? {});
+      lastToolOutput = `${toolCall.tool} ${result.ok ? "OK" : "ERROR"}:\n${result.output}`;
       if (toolCall.tool === "delegate_task" || toolCall.tool === "delegate_team") {
         lastDelegationOutput = `${result.ok ? "" : "ERROR: "}${result.output}`;
       }
@@ -267,6 +279,13 @@ export function buildSystemPrompt(
 
 Use short, direct reasoning. Prefer small, reversible steps. Avoid unnecessary work when a focused action solves the task.
 
+Butterclaw facts:
+- Saved agents are JSON profiles managed with "butterclaw agent create", "butterclaw agent run", and "--agent <name>".
+- There is no butterclaw.yaml agent config and no @agent prompt syntax in this CLI.
+- When asked to inspect or review a project, use workspace_map or read/list tools before reporting.
+- When asked to build, create, save, or update a file, use write_file when that tool is available.
+- Always return a non-empty final report.
+
 Active agent:
 ${agentBlock}
 
@@ -340,10 +359,10 @@ export function trimMessages(messages: Message[], maxChars: number): Message[] {
   return trimmed;
 }
 
-function withDelegationReport(answer: string, delegationOutput: string | null): string {
+function withDelegationReport(answer: string, delegationOutput: string | null, lastToolOutput: string | null): string {
   const trimmedAnswer = answer.trim();
   if (!delegationOutput) {
-    return trimmedAnswer || answer;
+    return nonEmptyAnswer(trimmedAnswer, lastToolOutput);
   }
   if (!trimmedAnswer) {
     return delegationOutput;
@@ -358,3 +377,12 @@ function withDelegationReport(answer: string, delegationOutput: string | null): 
   return `${trimmedAnswer}\n\nAgent report:\n${delegationOutput}`;
 }
 
+function nonEmptyAnswer(answer: string, lastToolOutput: string | null): string {
+  if (answer) {
+    return answer;
+  }
+  if (lastToolOutput) {
+    return `The model returned an empty answer after running a tool. Last tool result:\n${lastToolOutput}`;
+  }
+  return "The model provider returned an empty answer. Try again, use --provider mock to test the runtime, or raise --request-timeout-seconds for slow providers.";
+}

@@ -21,6 +21,8 @@ test("cli parser reads flags and task text", () => {
     "debugger",
     "--session",
     "long-build",
+    "--request-timeout-seconds",
+    "180",
     "--session-max-turns",
     "40",
     "--tool-profile",
@@ -53,6 +55,7 @@ test("cli parser reads flags and task text", () => {
   assert.equal(args.provider, "ollama");
   assert.equal(args.agent, "debugger");
   assert.equal(args.session, "long-build");
+  assert.equal(args.requestTimeoutSeconds, 180);
   assert.equal(args.sessionMaxTurns, 40);
   assert.equal(args.toolProfile, "coding");
   assert.deepEqual(args.toolAllow, ["read_file", "workspace_map"]);
@@ -125,6 +128,7 @@ test("openai-compatible setup defaults to OpenRouter gpt-oss free model", async 
   assert.equal(saved.provider, "openai-compatible");
   assert.equal(saved.baseUrl, "https://openrouter.ai/api/v1");
   assert.equal(saved.model, "openai/gpt-oss-120b:free");
+  assert.equal(saved.requestTimeoutSeconds, 120);
 });
 
 test("setup rejects invalid provider key environment variable names", async () => {

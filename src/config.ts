@@ -99,7 +99,7 @@ export function defaultConfig(overrides: Partial<ButterclawConfig> = {}): Butter
     toolAllow: [],
     toolDeny: [],
     allowOutsideWorkspace: false,
-    requestTimeoutSeconds: 60,
+    requestTimeoutSeconds: 120,
     shellTimeoutSeconds: 20,
     telegramTokenEnv: "TELEGRAM_BOT_TOKEN",
     telegramBaseUrl: "https://api.telegram.org",

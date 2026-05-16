@@ -146,12 +146,22 @@ async function postJson(
   timeoutSeconds: number,
   headers: Record<string, string>
 ): Promise<any> {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json", ...headers },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(timeoutSeconds * 1000)
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", ...headers },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(timeoutSeconds * 1000)
+    });
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      throw new ProviderError(
+        `Provider request timed out after ${timeoutSeconds}s. Try --request-timeout-seconds 180, a smaller task, or a faster model.`
+      );
+    }
+    throw new ProviderError(`Provider request failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
   const text = await response.text();
   if (!response.ok) {
     throw new ProviderError(`Provider HTTP ${response.status}: ${text}`);
@@ -161,4 +171,8 @@ async function postJson(
   } catch {
     throw new ProviderError(`Provider returned non-JSON response: ${text.slice(0, 500)}`);
   }
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 }

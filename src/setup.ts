@@ -145,6 +145,7 @@ async function configureProvider(config: ButterclawConfig, inputFunc: InputFunc,
     config.baseUrl = await prompt(inputFunc, "OpenAI-compatible base URL", config.baseUrl ?? "https://openrouter.ai/api/v1");
     outputFunc("Butterclaw does not issue API keys. Use a key from your chosen model provider.");
     config.apiKeyEnv = await promptEnvName(inputFunc, outputFunc, "Environment variable for your model provider key", config.apiKeyEnv);
+    config.requestTimeoutSeconds = Math.max(config.requestTimeoutSeconds, 120);
   } else if (config.provider === "ollama") {
     config.baseUrl = await prompt(inputFunc, "Ollama base URL", config.baseUrl ?? "http://localhost:11434");
   }

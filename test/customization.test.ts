@@ -6,6 +6,7 @@ import test from "node:test";
 import { ButterclawAgent } from "../src/agent.js";
 import { AgentProfile, AgentStore } from "../src/agents.js";
 import {
+  localHelpForTask,
   runAgentCommand,
   runAgentRunCommand,
   runBackupCommand,
@@ -65,6 +66,14 @@ test("agent command creates and lists profiles", () => {
   lines.length = 0;
   assert.equal(runAgentCommand(config, ["list"], (line) => lines.push(line)), 0);
   assert.match(lines.join("\n"), /debugger: Finds bugs/);
+
+  lines.length = 0;
+  assert.equal(runAgentCommand(config, ["--list"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /debugger: Finds bugs/);
+
+  lines.length = 0;
+  assert.equal(runAgentCommand(config, ["help"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /butterclaw agent run reviewer/);
 });
 
 test("agent run command executes a saved profile and prints an answer", async () => {
@@ -119,6 +128,10 @@ test("team command creates and lists agent teams", () => {
 
   lines.length = 0;
   assert.equal(runTeamCommand(config, ["list"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /review-crew: debugger, writer/);
+
+  lines.length = 0;
+  assert.equal(runTeamCommand(config, ["--list"], (line) => lines.push(line)), 0);
   assert.match(lines.join("\n"), /review-crew: debugger, writer/);
 });
 
@@ -348,4 +361,14 @@ test("slash commands are handled locally without calling the provider", async ()
   assert.equal(await runSlashCommand(config, "/new", { agent, sessionName: "slash-work", outputFunc: (line) => lines.push(line) }), true);
   assert.deepEqual(store.read("slash-work"), []);
   assert.equal(provider.messages.length, 0);
+});
+
+test("natural agent help returns real Butterclaw commands", () => {
+  const help = localHelpForTask("how can i configure agents in butterclaw?");
+  assert.ok(help);
+  assert.match(help, /butterclaw agent create reviewer/);
+  assert.match(help, /not butterclaw\.yaml/);
+
+  const pathHelp = localHelpForTask("i want the command to create and run an agent in C:\\Users\\cap_p\\Downloads\\flutta\\office>");
+  assert.match(pathHelp ?? "", /cd \/d C:\\Users\\cap_p\\Downloads\\flutta\\office/);
 });

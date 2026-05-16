@@ -121,6 +121,7 @@ Use an OpenAI-compatible endpoint:
 ```cmd
 set MODEL_PROVIDER_API_KEY=your-provider-api-key
 butterclaw --provider openai-compatible --base-url https://openrouter.ai/api/v1 --model openai/gpt-oss-120b:free "make a plan for my project"
+butterclaw --request-timeout-seconds 180 "review this project"
 ```
 
 Enable shell commands only when you actually need them:
@@ -280,14 +281,29 @@ key; use the key from your chosen model provider.
 
 Agents are saved JSON profiles in your Butterclaw config folder. Use them for
 roles like `debugger`, `reviewer`, `builder`, or `researcher`.
+They are not configured through `butterclaw.yaml`; use the commands below.
 
 ```cmd
 butterclaw agent list
+butterclaw agent --list
+butterclaw agent help
 butterclaw agent show debugger
 butterclaw agent create reviewer --description "Reviews code" --instructions "Find bugs, missing tests, and risky behavior first."
 butterclaw agent run reviewer "review the current project"
 butterclaw --agent reviewer "review the current project"
 ```
+
+On Windows `cmd`, use `cd /d` to move into another folder and do not include the
+prompt's trailing `>` in the command:
+
+```cmd
+cd /d C:\Users\cap_p\Downloads\flutta\office
+butterclaw agent create builder --description "Builds websites" --instructions "Create HTML, CSS, and JavaScript files with write_file when the user asks for files."
+butterclaw agent run builder "create a hello world page in abc.html"
+```
+
+Windows `cmd` has `dir` by default. Commands like `ls`, `nano`, and `touch`
+only work if you install Unix-style tools or use PowerShell/Git Bash alternatives.
 
 Teams are saved JSON profiles that point at multiple agents. The main agent can
 call them through `delegate_team`, and each member runs as a bounded sub-agent.
