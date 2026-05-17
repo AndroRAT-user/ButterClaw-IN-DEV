@@ -7,7 +7,9 @@ import test from "node:test";
 import { AgentStore } from "../src/agents.js";
 import { defaultConfig } from "../src/config.js";
 import { ButterclawGateway } from "../src/gateway.js";
+import { LocalMemory } from "../src/memory.js";
 import { ScheduleStore } from "../src/scheduler.js";
+import { SessionStore } from "../src/sessions.js";
 
 function tempConfig() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "butterclaw-gateway-"));
@@ -157,6 +159,33 @@ test("gateway exposes OpenAI-compatible chat and responses endpoints", async () 
       (tasks.data as Array<{ kind: string }>).map((task) => task.kind).sort(),
       ["compat-chat", "compat-responses"]
     );
+  });
+});
+
+test("gateway exposes authenticated metrics and local state inspection endpoints", async () => {
+  await withGateway(async (baseUrl, config) => {
+    new LocalMemory(config.memoryPath).add("user", "release checklist memory");
+    new SessionStore(config.sessionsDir).append("release", "user", "ship it");
+    fs.mkdirSync(config.skillsDir, { recursive: true });
+    fs.writeFileSync(path.join(config.skillsDir, "release.md"), "# release\n\nRun checks.\n", "utf8");
+
+    const options = await fetch(`${baseUrl}/metrics`, { method: "OPTIONS" });
+    assert.equal(options.status, 204);
+    assert.equal(options.headers.get("access-control-allow-origin"), "*");
+
+    const metrics = await fetchJson(`${baseUrl}/metrics`, { headers: { Authorization: "Bearer secret-token" } });
+    assert.equal(metrics.memory.count, 1);
+    assert.equal(metrics.sessions.count, 1);
+    assert.equal(metrics.skills.count, 1);
+
+    const memory = await fetchJson(`${baseUrl}/memory/search?q=release`, { headers: { Authorization: "Bearer secret-token" } });
+    assert.equal(memory.data.length, 1);
+
+    const sessions = await fetchJson(`${baseUrl}/sessions`, { headers: { Authorization: "Bearer secret-token" } });
+    assert.equal(sessions.data[0].name, "release");
+
+    const skills = await fetchJson(`${baseUrl}/skills`, { headers: { Authorization: "Bearer secret-token" } });
+    assert.equal(skills.data[0].name, "release");
   });
 });
 

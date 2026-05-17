@@ -11,13 +11,14 @@ import { doctorChecks } from "./doctor.js";
 import { ButterclawGateway, gatewayStatus } from "./gateway.js";
 import { githubStatus } from "./github.js";
 import { GOOGLE_WORKSPACE_SCOPES, googleStatus, loginGoogle, logoutGoogle } from "./google.js";
-import { formatScheduleList, formatScheduleRuns, ScheduleJob, ScheduleStore } from "./scheduler.js";
-import { SessionStore } from "./sessions.js";
+import { formatMemoryItems, formatMemoryStats, LocalMemory } from "./memory.js";
+import { formatScheduleList, formatScheduleRuns, formatScheduleStats, ScheduleJob, ScheduleStore } from "./scheduler.js";
+import { formatSessionSearch, formatSessionStats, SessionRole, SessionStore } from "./sessions.js";
 import { runSetup } from "./setup.js";
-import { SkillLoader } from "./skills.js";
+import { formatSkillInfo, SkillLoader } from "./skills.js";
 import { TeamStore } from "./teams.js";
-import { formatTasks, parseTaskStatus, TaskStore } from "./tasks.js";
-import { toolPolicySummary } from "./tool-policy.js";
+import { formatTasks, formatTaskStats, parseTaskStatus, TaskStore } from "./tasks.js";
+import { enabledToolNames, toolPolicySummary } from "./tool-policy.js";
 import { button, panel, renderCollection, renderHelp, statusPill, successLine } from "./ui.js";
 import { splitCsv } from "./util.js";
 
@@ -109,6 +110,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   if (command === "session" || command === "sessions") {
     return handleCommand(() => runSessionCommand(config, args.task.slice(1)));
+  }
+  if (command === "memory" || command === "mem") {
+    return handleCommand(() => runMemoryCommand(config, args.task.slice(1)));
   }
   if (command === "doctor" || command === "check" || command === "diagnose") {
     return handleAsyncCommand(() => runDoctorCommand(config));
@@ -425,6 +429,7 @@ export async function runSlashCommand(
         `${button("/reset")} same as /new`,
         `${button("/doctor")} run local diagnostics`,
         `${button("/backup")} save local agents, teams, skills, sessions, schedules, and memory`,
+        `${button("/memory")} show or search local memory`,
         `${button("/schedule")} show local reminders and recurring jobs`,
         `${button("/gateway")} show local gateway and hook status`,
         `${button("/tasks")} list local background task records`,
@@ -476,6 +481,13 @@ export async function runSlashCommand(
 
   if (command === "backup" || command === "export") {
     runBackupCommand(config, rest ? ["create", rest] : ["create"], outputFunc);
+    return true;
+  }
+
+  if (command === "memory" || command === "mem") {
+    const memory = new LocalMemory(config.memoryPath);
+    const items = rest ? memory.searchItems(rest, 20).map((entry) => entry.item) : memory.items(20);
+    outputFunc(panel("Memory", formatMemoryItems(items).split("\n")));
     return true;
   }
 
@@ -627,11 +639,16 @@ export async function runTeamRunCommand(config: ButterclawConfig, argv: string[]
 }
 
 export function runSkillCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): number {
-  const loader = new SkillLoader(config.skillsDir, config.maxSkillChars);
-  const command = argv[0]?.toLowerCase() ?? "list";
+  const loader = new SkillLoader(config.skillsDir, config.maxSkillChars, enabledToolNames(config));
+  const command = normalizeListCommand(argv[0]?.toLowerCase() ?? "list");
   if (command === "list") {
-    const skills = loader.list();
-    outputFunc(renderCollection("Skills", skills.map((skill) => `${button("skill")} ${skill}`), "No skills yet."));
+    const parsed = parseCommandOptions(argv.slice(1));
+    if (parsed.flags.has("verbose")) {
+      outputFunc(panel("Skills", formatSkillInfo(loader.listInfo()).split("\n")));
+    } else {
+      const skills = loader.list();
+      outputFunc(renderCollection("Skills", skills.map((skill) => `${button("skill")} ${skill}`), "No skills yet."));
+    }
     return 0;
   }
   if (command === "show") {
@@ -639,6 +656,18 @@ export function runSkillCommand(config: ButterclawConfig, argv: string[], output
     const skill = loader.read(name);
     if (skill === null) throw new Error(`Unknown skill: ${name}`);
     outputFunc(skill);
+    return 0;
+  }
+  if (command === "info") {
+    const info = loader.info(argv[1] ?? "");
+    if (!info) throw new Error(`Unknown skill: ${argv[1] ?? ""}`);
+    outputFunc(formatSkillInfo([info]));
+    return 0;
+  }
+  if (command === "search" || command === "find") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const query = parsed.positionals.join(" ");
+    outputFunc(formatSkillInfo(loader.search(query, Number(parsed.values.limit ?? 20))));
     return 0;
   }
   if (command === "create") {
@@ -653,12 +682,105 @@ export function runSkillCommand(config: ButterclawConfig, argv: string[], output
     outputFunc(successLine(`Created skill ${name} at ${file}`));
     return 0;
   }
-  throw new Error("Usage: butterclaw skill list | show <name> | create <name> [--description text] [--body text] [--force]");
+  if (command === "delete" || command === "remove" || command === "rm") {
+    const name = argv[1] ?? "";
+    const removed = loader.remove(name);
+    outputFunc(removed ? successLine(`Deleted skill ${name}`) : `No skill found: ${name}`);
+    return removed ? 0 : 1;
+  }
+  if (command === "rename" || command === "mv") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const [oldName = "", newName = ""] = parsed.positionals;
+    const renamed = loader.rename(oldName, newName, parsed.flags.has("force"));
+    outputFunc(renamed ? successLine(`Renamed skill ${oldName} to ${newName}`) : `No skill found: ${oldName}`);
+    return renamed ? 0 : 1;
+  }
+  if (command === "copy" || command === "cp") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const [oldName = "", newName = ""] = parsed.positionals;
+    const copied = loader.copy(oldName, newName, parsed.flags.has("force"));
+    outputFunc(copied ? successLine(`Copied skill ${oldName} to ${newName}`) : `No skill found: ${oldName}`);
+    return copied ? 0 : 1;
+  }
+  if (command === "validate" || command === "doctor") {
+    const messages = loader.validate(argv[1]);
+    outputFunc(messages.length ? messages.join("\n") : successLine("Skills validated."));
+    return messages.length ? 1 : 0;
+  }
+  throw new Error(
+    "Usage: butterclaw skill list [--verbose] | show <name> | info <name> | search <query> | create <name> [--description text] [--body text] [--force] | delete <name> | rename <old> <new> [--force] | copy <old> <new> [--force] | validate [name]"
+  );
+}
+
+export function runMemoryCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): number {
+  const memory = new LocalMemory(config.memoryPath);
+  const command = normalizeListCommand(argv[0]?.toLowerCase() ?? "list");
+  if (command === "list" || command === "tail") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    outputFunc(panel("Memory", formatMemoryItems(memory.items(Number(parsed.values.limit ?? parsed.positionals[0] ?? 50))).split("\n")));
+    return 0;
+  }
+  if (command === "search" || command === "find") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const query = parsed.positionals.join(" ");
+    outputFunc(panel("Memory", formatMemoryItems(memory.searchItems(query, Number(parsed.values.limit ?? 20)).map((entry) => entry.item)).split("\n")));
+    return 0;
+  }
+  if (command === "add" || command === "remember") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const content = parsed.values.content ?? parsed.values.text ?? parsed.positionals.join(" ");
+    memory.add(parsed.values.role ?? "user", content);
+    outputFunc(successLine("Memory saved."));
+    return 0;
+  }
+  if (command === "show" || command === "get") {
+    const item = memory.get(argv[1] ?? "");
+    if (!item) throw new Error(`Unknown memory: ${argv[1] ?? ""}`);
+    outputFunc(JSON.stringify(item, null, 2));
+    return 0;
+  }
+  if (command === "forget" || command === "delete" || command === "rm") {
+    const id = argv[1] ?? "";
+    const removed = memory.forget(id);
+    outputFunc(removed ? successLine(`Forgot memory ${id}`) : `No memory found: ${id}`);
+    return removed ? 0 : 1;
+  }
+  if (command === "clear") {
+    const removed = memory.clear();
+    outputFunc(successLine(`Cleared ${removed} memory item(s).`));
+    return 0;
+  }
+  if (command === "stats") {
+    outputFunc(panel("Memory Stats", formatMemoryStats(memory.stats()).split("\n")));
+    return 0;
+  }
+  if (command === "export") {
+    const target = argv[1] ?? "butterclaw-memory-export.json";
+    memory.exportJson(target);
+    outputFunc(successLine(`Exported memory to ${target}`));
+    return 0;
+  }
+  if (command === "import") {
+    const source = argv[1] ?? "";
+    const count = memory.importJson(source);
+    outputFunc(successLine(`Imported ${count} memory item(s).`));
+    return 0;
+  }
+  if (command === "prune") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const keep = Number(parsed.values.keep ?? parsed.positionals[0] ?? 100);
+    const removed = memory.prune(keep);
+    outputFunc(successLine(`Pruned ${removed} memory item(s).`));
+    return 0;
+  }
+  throw new Error(
+    "Usage: butterclaw memory list [--limit n] | search <query> [--limit n] | add [--role role] <text...> | show <id|index> | forget <id|index> | stats | export [path] | import <path> | prune --keep <n> | clear"
+  );
 }
 
 export function runSessionCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): number {
   const store = new SessionStore(config.sessionsDir);
-  const command = argv[0]?.toLowerCase() ?? "list";
+  const command = normalizeListCommand(argv[0]?.toLowerCase() ?? "list");
   if (command === "list") {
     const sessions = store.list();
     outputFunc(
@@ -675,20 +797,74 @@ export function runSessionCommand(config: ButterclawConfig, argv: string[], outp
     outputFunc(store.format(name));
     return 0;
   }
-  if (command === "clear") {
+  if (command === "tail") {
+    const name = argv[1] ?? "";
+    const count = Number(argv[2] ?? 10);
+    outputFunc(store.tail(name, count));
+    return 0;
+  }
+  if (command === "search" || command === "find") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    outputFunc(formatSessionSearch(store.search(parsed.positionals.join(" "), Number(parsed.values.limit ?? 20))));
+    return 0;
+  }
+  if (command === "stats") {
+    outputFunc(panel("Session Stats", formatSessionStats(store.stats(argv[1])).split("\n")));
+    return 0;
+  }
+  if (command === "append") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const name = parsed.positionals[0] ?? "";
+    const role = (parsed.values.role ?? "user") as SessionRole;
+    if (role !== "user" && role !== "assistant") throw new Error("role must be user or assistant");
+    const content = parsed.values.content ?? parsed.values.text ?? parsed.positionals.slice(1).join(" ");
+    store.append(name, role, content);
+    outputFunc(successLine(`Appended ${role} turn to ${name}`));
+    return 0;
+  }
+  if (command === "rename" || command === "mv") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const [oldName = "", newName = ""] = parsed.positionals;
+    const renamed = store.rename(oldName, newName, parsed.flags.has("force"));
+    outputFunc(renamed ? successLine(`Renamed session ${oldName} to ${newName}`) : `No session found: ${oldName}`);
+    return renamed ? 0 : 1;
+  }
+  if (command === "copy" || command === "cp") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const [oldName = "", newName = ""] = parsed.positionals;
+    const copied = store.copy(oldName, newName, parsed.flags.has("force"));
+    outputFunc(copied ? successLine(`Copied session ${oldName} to ${newName}`) : `No session found: ${oldName}`);
+    return copied ? 0 : 1;
+  }
+  if (command === "export") {
+    const name = argv[1] ?? "";
+    const target = argv[2] ?? `${name || "session"}.md`;
+    store.export(name, target);
+    outputFunc(successLine(`Exported session ${name} to ${target}`));
+    return 0;
+  }
+  if (command === "clear" || command === "delete" || command === "rm") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    if (parsed.flags.has("all")) {
+      const count = store.clearAll();
+      outputFunc(successLine(`Cleared ${count} session(s).`));
+      return 0;
+    }
     const name = argv[1] ?? "";
     const cleared = store.clear(name);
     outputFunc(cleared ? successLine(`Cleared session ${name}`) : `No session found: ${name}`);
     return 0;
   }
   if (command === "prune") {
-    const name = argv[1] ?? "";
-    const maxTurns = argv[2] ? Number(argv[2]) : config.sessionMaxTurns;
-    const removed = store.prune(name, maxTurns);
-    outputFunc(successLine(`Pruned ${removed} old turn(s) from ${name}`));
+    const parsed = parseCommandOptions(argv.slice(1));
+    const maxTurns = Number(parsed.values.keep ?? parsed.positionals.at(-1) ?? config.sessionMaxTurns);
+    const removed = parsed.flags.has("all") ? store.pruneAll(maxTurns) : store.prune(parsed.positionals[0] ?? "", maxTurns);
+    outputFunc(successLine(`Pruned ${removed} old turn(s).`));
     return 0;
   }
-  throw new Error("Usage: butterclaw session list | show <name> | clear <name> | prune <name> [maxTurns]");
+  throw new Error(
+    "Usage: butterclaw session list | show <name> | tail <name> [count] | search <query> | stats [name] | append <name> [--role user|assistant] <text...> | rename <old> <new> [--force] | copy <old> <new> [--force] | export <name> [path] | clear <name>|--all | prune <name>|--all [maxTurns]"
+  );
 }
 
 export async function runDoctorCommand(config: ButterclawConfig, outputFunc = console.log): Promise<number> {
@@ -793,6 +969,14 @@ export async function runScheduleCommand(config: ButterclawConfig, argv: string[
     outputFunc(panel("Schedule", formatScheduleList(store.list()).split("\n")));
     return 0;
   }
+  if (command === "due") {
+    outputFunc(panel("Schedule Due", formatScheduleList(store.due()).split("\n")));
+    return 0;
+  }
+  if (command === "stats") {
+    outputFunc(panel("Schedule Stats", formatScheduleStats(store.stats()).split("\n")));
+    return 0;
+  }
   if (command === "show" || command === "get") {
     const job = store.get(argv[1] ?? "");
     if (!job) throw new Error(`Unknown schedule: ${argv[1] ?? ""}`);
@@ -833,6 +1017,24 @@ export async function runScheduleCommand(config: ButterclawConfig, argv: string[
     outputFunc(removed ? successLine(`Removed schedule ${target}`) : `No schedule found: ${target}`);
     return removed ? 0 : 1;
   }
+  if (command === "enable" || command === "resume") {
+    const target = argv[1] ?? "";
+    const job = store.setEnabled(target, true);
+    outputFunc(job ? successLine(`Enabled schedule ${job.name}`) : `No schedule found: ${target}`);
+    return job ? 0 : 1;
+  }
+  if (command === "disable" || command === "pause") {
+    const target = argv[1] ?? "";
+    const job = store.setEnabled(target, false);
+    outputFunc(job ? successLine(`Disabled schedule ${job.name}`) : `No schedule found: ${target}`);
+    return job ? 0 : 1;
+  }
+  if (command === "export") {
+    const target = argv[1] ?? "butterclaw-schedule-export.json";
+    store.exportJson(target);
+    outputFunc(successLine(`Exported schedules to ${target}`));
+    return 0;
+  }
   if (command === "run") {
     const parsed = parseCommandOptions(argv.slice(1));
     const dueOnly = parsed.flags.has("due") || !parsed.positionals[0] || parsed.positionals[0] === "--due";
@@ -856,7 +1058,7 @@ export async function runScheduleCommand(config: ButterclawConfig, argv: string[
     }
   }
   throw new Error(
-    "Usage: butterclaw schedule list | add --at <time>|--every <duration> --message <task> [--name name] [--session name] [--agent name] | run [--due|id] | runs [id] | remove <id>"
+    "Usage: butterclaw schedule list | due | stats | add --at <time>|--every <duration> --message <task> [--name name] [--session name] [--agent name] | run [--due|id] | runs [id] | enable <id> | disable <id> | export [path] | remove <id>"
   );
 }
 
@@ -875,8 +1077,9 @@ export function runTaskCommand(config: ButterclawConfig, argv: string[], outputF
         formatTasks(
           store.list({
             status,
-            kind: parsed.values.kind
-          })
+            kind: parsed.values.kind,
+            source: parsed.values.source
+          }, Number(parsed.values.limit ?? 50))
         ).split("\n")
       )
     );
@@ -888,7 +1091,37 @@ export function runTaskCommand(config: ButterclawConfig, argv: string[], outputF
     outputFunc(JSON.stringify(task, null, 2));
     return 0;
   }
-  throw new Error("Usage: butterclaw tasks list [--status status] [--kind kind] | show <taskId|runId>");
+  if (command === "cancel") {
+    const task = store.cancel(argv[1] ?? "", argv.slice(2).join(" ") || undefined);
+    outputFunc(task ? successLine(`Cancelled task ${task.id}`) : `No task found: ${argv[1] ?? ""}`);
+    return task ? 0 : 1;
+  }
+  if (command === "stats") {
+    outputFunc(panel("Task Stats", formatTaskStats(store.stats()).split("\n")));
+    return 0;
+  }
+  if (command === "clear") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const status = parseTaskStatus(parsed.values.status);
+    if (parsed.values.status && !status) throw new Error("Unknown task status. Use queued, running, succeeded, failed, or cancelled.");
+    const removed = store.clear({ status, kind: parsed.values.kind, source: parsed.values.source });
+    outputFunc(successLine(`Cleared ${removed} task record(s).`));
+    return 0;
+  }
+  if (command === "prune") {
+    const parsed = parseCommandOptions(argv.slice(1));
+    const keep = Number(parsed.values.keep ?? parsed.positionals[0] ?? 100);
+    const removed = store.prune(keep);
+    outputFunc(successLine(`Pruned ${removed} task record(s).`));
+    return 0;
+  }
+  if (command === "export") {
+    const target = argv[1] ?? "butterclaw-tasks-export.json";
+    store.exportJson(target);
+    outputFunc(successLine(`Exported tasks to ${target}`));
+    return 0;
+  }
+  throw new Error("Usage: butterclaw tasks list [--status status] [--kind kind] [--source source] [--limit n] | show <taskId|runId> | cancel <id> [reason] | stats | clear [--status status] [--kind kind] [--source source] | prune --keep <n> | export [path]");
 }
 
 export async function runWhatsAppCommand(config: ButterclawConfig, argv: string[], outputFunc = console.log): Promise<number> {
@@ -988,7 +1221,7 @@ function parseCommandOptions(argv: string[]): { positionals: string[]; values: R
   const positionals: string[] = [];
   const values: Record<string, string> = {};
   const flags = new Set<string>();
-  const booleanFlags = new Set(["force", "no-browser", "delete-after-run", "disabled", "due", "once"]);
+  const booleanFlags = new Set(["force", "no-browser", "delete-after-run", "disabled", "due", "once", "all", "verbose"]);
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (!arg.startsWith("--")) {

@@ -1,13 +1,17 @@
 import childProcess from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { registerWhatsAppTools } from "./channels/whatsapp.js";
 import { ButterclawConfig } from "./config.js";
 import { registerGitHubTools } from "./github.js";
 import { registerGoogleTools } from "./google.js";
-import { formatScheduleList, ScheduleStore } from "./scheduler.js";
-import { formatTasks, parseTaskStatus, TaskStore } from "./tasks.js";
-import { isToolEnabled } from "./tool-policy.js";
+import { formatMemoryItems, formatMemoryStats, LocalMemory } from "./memory.js";
+import { formatScheduleList, formatScheduleStats, ScheduleStore } from "./scheduler.js";
+import { formatSessionSearch, SessionStore } from "./sessions.js";
+import { formatSkillInfo, SkillLoader } from "./skills.js";
+import { formatTasks, formatTaskStats, parseTaskStatus, TaskStore } from "./tasks.js";
+import { enabledToolNames, isToolEnabled } from "./tool-policy.js";
 import { ensureParent, isRecord, truncate } from "./util.js";
 
 export interface ToolResult {
@@ -99,6 +103,18 @@ class WorkspaceTools {
     return { ok: true, output: text };
   };
 
+  readFileRange = (args: Record<string, unknown>): ToolResult => {
+    const resolved = this.resolve(String(args.path ?? ""));
+    const start = boundedInt(args.start, 1, 1_000_000, 1);
+    const end = boundedInt(args.end, start, 1_000_000, start + 80);
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+      return { ok: false, output: `File does not exist: ${resolved}` };
+    }
+    const lines = fs.readFileSync(resolved, "utf8").split(/\r?\n/);
+    const selected = lines.slice(start - 1, end).map((line, index) => `${start + index}: ${line}`);
+    return { ok: true, output: selected.join("\n") || "(empty range)" };
+  };
+
   writeFile = (args: Record<string, unknown>): ToolResult => {
     const resolved = this.resolve(String(args.path ?? ""));
     const content = String(args.content ?? "");
@@ -143,6 +159,55 @@ class WorkspaceTools {
       }
     });
     return { ok: true, output: matches.join("\n") || "No matches" };
+  };
+
+  findFiles = (args: Record<string, unknown>): ToolResult => {
+    const pattern = String(args.pattern ?? args.query ?? "").toLowerCase().trim();
+    if (!pattern) {
+      return { ok: false, output: "pattern is required" };
+    }
+    const root = this.resolve(String(args.path ?? "."));
+    const maxMatches = boundedInt(args.maxMatches, 1, 500, 80);
+    const matches: string[] = [];
+    this.walk(root, (file) => {
+      if (matches.length >= maxMatches) return;
+      const rel = relativePath(this.root, file);
+      if (wildcardMatch(rel.toLowerCase(), pattern)) {
+        matches.push(rel);
+      }
+    });
+    return { ok: true, output: matches.join("\n") || "No files matched" };
+  };
+
+  fileStat = (args: Record<string, unknown>): ToolResult => {
+    const resolved = this.resolve(String(args.path ?? ""));
+    if (!fs.existsSync(resolved)) {
+      return { ok: false, output: `Path does not exist: ${resolved}` };
+    }
+    const stat = fs.statSync(resolved);
+    return {
+      ok: true,
+      output: [
+        `Path: ${relativePath(this.root, resolved)}`,
+        `Type: ${stat.isDirectory() ? "directory" : stat.isFile() ? "file" : "other"}`,
+        `Size: ${stat.size}`,
+        `Modified: ${stat.mtime.toISOString()}`,
+        `Created: ${stat.birthtime.toISOString()}`
+      ].join("\n")
+    };
+  };
+
+  fileHash = (args: Record<string, unknown>): ToolResult => {
+    const resolved = this.resolve(String(args.path ?? ""));
+    const algorithm = String(args.algorithm ?? "sha256");
+    if (!["sha1", "sha256", "sha512", "md5"].includes(algorithm)) {
+      return { ok: false, output: "algorithm must be sha1, sha256, sha512, or md5" };
+    }
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+      return { ok: false, output: `File does not exist: ${resolved}` };
+    }
+    const hash = crypto.createHash(algorithm).update(fs.readFileSync(resolved)).digest("hex");
+    return { ok: true, output: `${algorithm} ${relativePath(this.root, resolved)} ${hash}` };
   };
 
   workspaceMap = (args: Record<string, unknown>): ToolResult => {
@@ -313,6 +378,12 @@ export function buildDefaultRegistry(config: ButterclawConfig): ToolRegistry {
       handler: workspace.readFile
     },
     {
+      name: "read_file_range",
+      description: "Read numbered line ranges from a UTF-8 workspace file",
+      args: { path: "relative file path", start: "1-based start line", end: "1-based end line" },
+      handler: workspace.readFileRange
+    },
+    {
       name: "write_file",
       description: "Write or append a UTF-8 text file in the workspace",
       args: { path: "relative file path", content: "text", mode: "overwrite or append" },
@@ -323,6 +394,24 @@ export function buildDefaultRegistry(config: ButterclawConfig): ToolRegistry {
       description: "Search file names and text content in the workspace",
       args: { query: "text to find", path: "relative directory", maxMatches: "optional limit" },
       handler: workspace.searchFiles
+    },
+    {
+      name: "find_files",
+      description: "Find workspace files by wildcard pattern",
+      args: { pattern: "filename wildcard like *.ts or docs/*", path: "relative directory", maxMatches: "optional limit" },
+      handler: workspace.findFiles
+    },
+    {
+      name: "file_stat",
+      description: "Show workspace file or directory metadata",
+      args: { path: "relative path" },
+      handler: workspace.fileStat
+    },
+    {
+      name: "file_hash",
+      description: "Hash a workspace file for verification",
+      args: { path: "relative file path", algorithm: "sha256, sha1, sha512, or md5" },
+      handler: workspace.fileHash
     },
     {
       name: "workspace_map",
@@ -350,9 +439,99 @@ export function buildDefaultRegistry(config: ButterclawConfig): ToolRegistry {
       })
     },
     {
+      name: "memory_list",
+      description: "List recent local memory items",
+      args: { limit: "optional item limit" },
+      handler: (args) => ({
+        ok: true,
+        output: formatMemoryItems(new LocalMemory(config.memoryPath).items(boundedInt(args.limit, 1, 200, 30)))
+      })
+    },
+    {
+      name: "memory_search",
+      description: "Search local memory",
+      args: { query: "search text", limit: "optional result limit" },
+      handler: (args) => ({
+        ok: true,
+        output: formatMemoryItems(new LocalMemory(config.memoryPath).searchItems(String(args.query ?? ""), boundedInt(args.limit, 1, 100, 20)).map((entry) => entry.item))
+      })
+    },
+    {
+      name: "memory_add",
+      description: "Save a local memory item",
+      args: { role: "role label", content: "memory text" },
+      handler: (args) => {
+        new LocalMemory(config.memoryPath).add(optionalString(args.role) ?? "user", String(args.content ?? ""));
+        return { ok: true, output: "Memory saved." };
+      }
+    },
+    {
+      name: "memory_forget",
+      description: "Delete one local memory item by id or index",
+      args: { id: "memory id or 1-based index" },
+      handler: (args) => {
+        const id = String(args.id ?? "");
+        return new LocalMemory(config.memoryPath).forget(id) ? { ok: true, output: `Forgot memory ${id}` } : { ok: false, output: `No memory found: ${id}` };
+      }
+    },
+    {
+      name: "memory_stats",
+      description: "Show local memory statistics",
+      args: {},
+      handler: () => ({ ok: true, output: formatMemoryStats(new LocalMemory(config.memoryPath).stats()) })
+    },
+    {
+      name: "session_list",
+      description: "List saved local sessions",
+      args: {},
+      handler: () => ({
+        ok: true,
+        output: new SessionStore(config.sessionsDir)
+          .list()
+          .map((session) => `${session.name}: ${session.turns} turn(s), updated ${session.updatedAt}`)
+          .join("\n") || "No sessions."
+      })
+    },
+    {
+      name: "session_show",
+      description: "Show a saved local session",
+      args: { name: "session name", maxTurns: "optional turn limit" },
+      handler: (args) => ({
+        ok: true,
+        output: new SessionStore(config.sessionsDir).format(String(args.name ?? ""), boundedInt(args.maxTurns, 1, 200, 50))
+      })
+    },
+    {
+      name: "session_search",
+      description: "Search saved local sessions",
+      args: { query: "search text", limit: "optional result limit" },
+      handler: (args) => ({
+        ok: true,
+        output: formatSessionSearch(new SessionStore(config.sessionsDir).search(String(args.query ?? ""), boundedInt(args.limit, 1, 100, 20)))
+      })
+    },
+    {
+      name: "skill_search",
+      description: "Search local skills",
+      args: { query: "search text", limit: "optional result limit" },
+      handler: (args) => ({
+        ok: true,
+        output: formatSkillInfo(new SkillLoader(config.skillsDir, config.maxSkillChars, enabledToolNames(config)).search(String(args.query ?? ""), boundedInt(args.limit, 1, 100, 20)))
+      })
+    },
+    {
+      name: "skill_info",
+      description: "Show skill metadata and eligibility",
+      args: { name: "skill name" },
+      handler: (args) => {
+        const info = new SkillLoader(config.skillsDir, config.maxSkillChars, enabledToolNames(config)).info(String(args.name ?? ""));
+        return info ? { ok: true, output: formatSkillInfo([info]) } : { ok: false, output: `No skill found: ${String(args.name ?? "")}` };
+      }
+    },
+    {
       name: "task_list",
       description: "List recent local background task records",
-      args: { status: "optional status filter", kind: "optional kind filter" },
+      args: { status: "optional status filter", kind: "optional kind filter", source: "optional source filter", limit: "optional result limit" },
       handler: (args) => {
         const status = parseTaskStatus(args.status);
         if (args.status !== undefined && !status) {
@@ -360,7 +539,7 @@ export function buildDefaultRegistry(config: ButterclawConfig): ToolRegistry {
         }
         return {
           ok: true,
-          output: formatTasks(new TaskStore(config.taskPath).list({ status, kind: optionalString(args.kind) }))
+          output: formatTasks(new TaskStore(config.taskPath).list({ status, kind: optionalString(args.kind), source: optionalString(args.source) }, boundedInt(args.limit, 1, 200, 50)))
         };
       }
     },
@@ -372,6 +551,21 @@ export function buildDefaultRegistry(config: ButterclawConfig): ToolRegistry {
         const task = new TaskStore(config.taskPath).get(String(args.id ?? ""));
         return task ? { ok: true, output: JSON.stringify(task, null, 2) } : { ok: false, output: `No task found: ${String(args.id ?? "")}` };
       }
+    },
+    {
+      name: "task_cancel",
+      description: "Cancel one local background task record",
+      args: { id: "task id", reason: "optional reason" },
+      handler: (args) => {
+        const task = new TaskStore(config.taskPath).cancel(String(args.id ?? ""), optionalString(args.reason));
+        return task ? { ok: true, output: `Cancelled ${task.id}` } : { ok: false, output: `No task found: ${String(args.id ?? "")}` };
+      }
+    },
+    {
+      name: "task_stats",
+      description: "Show local background task statistics",
+      args: {},
+      handler: () => ({ ok: true, output: formatTaskStats(new TaskStore(config.taskPath).stats()) })
     }
   ];
   specs.forEach((spec) => registerIfEnabled(registry, spec, config));
@@ -447,6 +641,32 @@ function registerScheduleTools(adapter: { register: (spec: ToolSpec) => void }, 
       return store.remove(id) ? { ok: true, output: `Removed schedule ${id}` } : { ok: false, output: `No schedule found: ${id}` };
     }
   });
+  adapter.register({
+    name: "schedule_enable",
+    description: "Enable a local scheduled task by id or name",
+    args: { id: "schedule id or name" },
+    handler: (args) => {
+      const id = String(args.id ?? args.name ?? "").trim();
+      const job = store.setEnabled(id, true);
+      return job ? { ok: true, output: `Enabled schedule ${job.name}` } : { ok: false, output: `No schedule found: ${id}` };
+    }
+  });
+  adapter.register({
+    name: "schedule_disable",
+    description: "Disable a local scheduled task by id or name",
+    args: { id: "schedule id or name" },
+    handler: (args) => {
+      const id = String(args.id ?? args.name ?? "").trim();
+      const job = store.setEnabled(id, false);
+      return job ? { ok: true, output: `Disabled schedule ${job.name}` } : { ok: false, output: `No schedule found: ${id}` };
+    }
+  });
+  adapter.register({
+    name: "schedule_stats",
+    description: "Show local schedule statistics",
+    args: {},
+    handler: () => ({ ok: true, output: formatScheduleStats(store.stats()) })
+  });
 }
 
 export function registerIfEnabled(registry: ToolRegistry, spec: ToolSpec, config: ButterclawConfig): void {
@@ -485,6 +705,11 @@ function readPackageScripts(file: string): string[] {
     return [];
   }
   return [];
+}
+
+function wildcardMatch(value: string, pattern: string): boolean {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`, "i").test(value) || value.includes(pattern.replace(/\*/g, "").replace(/\?/g, ""));
 }
 
 function optionalString(value: unknown): string | undefined {

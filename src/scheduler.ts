@@ -33,6 +33,14 @@ export interface ScheduleRun {
   output: string;
 }
 
+export interface ScheduleStats {
+  jobs: number;
+  enabled: number;
+  due: number;
+  runs: number;
+  errors: number;
+}
+
 export interface ScheduleCreateInput {
   name?: string;
   at?: string;
@@ -126,6 +134,34 @@ export class ScheduleStore {
     return true;
   }
 
+  setEnabled(idOrName: string, enabled: boolean): ScheduleJob | null {
+    const data = this.read();
+    const key = idOrName.trim().toLowerCase();
+    const job = data.jobs.find((candidate) => candidate.id.toLowerCase() === key || candidate.name.toLowerCase() === key);
+    if (!job) {
+      return null;
+    }
+    job.enabled = enabled;
+    job.updatedAt = new Date().toISOString();
+    this.write(data);
+    return job;
+  }
+
+  stats(now = new Date()): ScheduleStats {
+    const data = this.read();
+    return {
+      jobs: data.jobs.length,
+      enabled: data.jobs.filter((job) => job.enabled).length,
+      due: data.jobs.filter((job) => job.enabled && Date.parse(job.nextRunAt) <= now.getTime()).length,
+      runs: data.runs.length,
+      errors: data.runs.filter((run) => run.status === "error").length
+    };
+  }
+
+  exportJson(targetPath: string): void {
+    writeJsonFile(targetPath, this.read());
+  }
+
   due(now = new Date()): ScheduleJob[] {
     const nowMs = now.getTime();
     return this.list().filter((job) => job.enabled && Date.parse(job.nextRunAt) <= nowMs);
@@ -209,6 +245,16 @@ export function formatScheduleRuns(runs: ScheduleRun[]): string {
   return runs
     .map((run) => `${run.id} ${run.status} ${run.jobName} ${run.startedAt}\n  ${compact(run.output, 240)}`)
     .join("\n\n");
+}
+
+export function formatScheduleStats(stats: ScheduleStats): string {
+  return [
+    `Jobs: ${stats.jobs}`,
+    `Enabled: ${stats.enabled}`,
+    `Due: ${stats.due}`,
+    `Runs: ${stats.runs}`,
+    `Errors: ${stats.errors}`
+  ].join("\n");
 }
 
 export function parseScheduleTime(value: string, now = new Date()): Date {

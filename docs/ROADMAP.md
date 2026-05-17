@@ -22,6 +22,7 @@ powers with fewer moving pieces.
 - loopback HTTP gateway with authenticated wake/agent hooks
 - gateway idempotency and OpenAI-compatible chat/responses endpoints
 - local background task ledger
+- 65-feature local operator pack for memory, sessions, skills, tasks, schedules, gateway state, and workspace utility tools
 - workspace-confined file tools and workspace mapping
 - tool profiles with allow and deny rules
 - skill metadata with required tool gates

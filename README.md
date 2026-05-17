@@ -34,6 +34,7 @@ Telegram channel without requiring a large service stack.
 - JSONL local memory with simple relevance search
 - Markdown skill loading from a local skills folder with metadata gates for required tools
 - local background task ledger for gateway hooks, compatibility calls, and scheduled runs
+- 65-feature advanced parity pack for memory, sessions, skills, tasks, schedules, gateway inspection, and workspace utilities
 - local usage tracking
 
 ## Quick Start
@@ -97,6 +98,7 @@ butterclaw /tool-policy
 butterclaw --session butter-build /new
 butterclaw /schedule
 butterclaw /tasks
+butterclaw /memory release checklist
 butterclaw /github
 butterclaw /whatsapp
 ```
@@ -183,8 +185,9 @@ Profiles:
 
 Groups accepted by `--allow-tool` and `--deny-tool`: `group:read`,
 `group:write`, `group:fs`, `group:runtime`, `group:google`, `group:agents`,
-`group:github`, `group:automation`, `group:whatsapp`, `group:channels`, and
-`group:all`. Wildcards like `gmail_*` are also supported.
+`group:github`, `group:automation`, `group:memory`, `group:sessions`,
+`group:skills`, `group:whatsapp`, `group:channels`, and `group:all`.
+Wildcards like `gmail_*` are also supported.
 
 ## Scheduling
 
@@ -216,6 +219,26 @@ butterclaw /tasks
 
 Agent tools: `task_list` and `task_show`.
 
+## Advanced Feature Pack
+
+Butterclaw now includes a clean-room 65-feature OpenClaw-style utility pack
+covering memory management, session operations, skill inspection, task cleanup,
+schedule pause/resume, gateway metrics/state endpoints, and workspace
+inspection tools.
+
+Useful entry points:
+
+```cmd
+butterclaw memory search release
+butterclaw session search "ship it"
+butterclaw skill list --verbose
+butterclaw tasks stats
+butterclaw schedule disable morning-brief
+```
+
+See [docs/ADVANCED-FEATURES.md](docs/ADVANCED-FEATURES.md) for the full
+numbered list.
+
 ## Gateway And Webhooks
 
 Butterclaw's gateway is a small loopback HTTP process for local control and
@@ -234,6 +257,11 @@ Endpoints:
 - `GET /v1/models`
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
+- `GET /metrics`
+- `GET /config`
+- `GET /sessions`
+- `GET /skills`
+- `GET /memory` and `GET /memory/search`
 - `POST /hooks/wake`
 - `POST /hooks/agent`
 - `GET /tasks`

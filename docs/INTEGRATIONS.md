@@ -58,6 +58,8 @@ Task inspection:
 ```cmd
 butterclaw tasks list
 curl http://127.0.0.1:18789/tasks -H "Authorization: Bearer choose-a-local-token"
+curl http://127.0.0.1:18789/metrics -H "Authorization: Bearer choose-a-local-token"
+curl http://127.0.0.1:18789/memory/search?q=release -H "Authorization: Bearer choose-a-local-token"
 ```
 
 See [GATEWAY.md](GATEWAY.md).

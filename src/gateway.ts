@@ -3,8 +3,12 @@ import http from "node:http";
 import { AgentProfile, AgentStore, applyAgentProfile } from "./agents.js";
 import { ButterclawAgent } from "./agent.js";
 import { ButterclawConfig } from "./config.js";
-import { ScheduleStore } from "./scheduler.js";
-import { TaskStore } from "./tasks.js";
+import { formatMemoryStats, LocalMemory } from "./memory.js";
+import { formatScheduleStats, ScheduleStore } from "./scheduler.js";
+import { SessionStore } from "./sessions.js";
+import { SkillLoader } from "./skills.js";
+import { formatTaskStats, parseTaskStatus, TaskStore } from "./tasks.js";
+import { enabledToolNames } from "./tool-policy.js";
 import { isRecord, truncate } from "./util.js";
 
 export class GatewayError extends Error {}
@@ -59,12 +63,24 @@ export class ButterclawGateway {
   private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     try {
       const url = new URL(req.url ?? "/", `http://${this.config.gatewayHost}`);
+      if (req.method === "OPTIONS") {
+        sendEmpty(res, 204);
+        return;
+      }
       if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/health" || url.pathname === "/status")) {
         sendJson(res, 200, this.health());
         return;
       }
       if (req.method === "GET" && url.pathname === "/v1/models") {
         sendJson(res, 200, this.models());
+        return;
+      }
+      if (req.method === "GET" && ["/metrics", "/config", "/sessions", "/skills", "/memory", "/memory/search"].some((path) => url.pathname === path || url.pathname.startsWith(`${path}/`))) {
+        if (!this.authOk(req)) {
+          sendJson(res, 401, { ok: false, error: "unauthorized" });
+          return;
+        }
+        this.handleReadApi(res, url);
         return;
       }
       if (url.pathname === "/v1/chat/completions" || url.pathname === "/v1/responses") {
@@ -253,7 +269,78 @@ export class ButterclawGateway {
       sendJson(res, task ? 200 : 404, task ?? { ok: false, error: "task_not_found" });
       return;
     }
-    sendJson(res, 200, { object: "list", data: store.list() });
+    const status = parseTaskStatus(url.searchParams.get("status"));
+    const limit = Number(url.searchParams.get("limit") ?? 50);
+    sendJson(res, 200, {
+      object: "list",
+      data: store.list(
+        {
+          ...(status ? { status } : {}),
+          ...(url.searchParams.get("kind") ? { kind: url.searchParams.get("kind")! } : {}),
+          ...(url.searchParams.get("source") ? { source: url.searchParams.get("source")! } : {})
+        },
+        limit
+      )
+    });
+  }
+
+  private handleReadApi(res: http.ServerResponse, url: URL): void {
+    if (url.pathname === "/metrics") {
+      const sessions = new SessionStore(this.config.sessionsDir).list();
+      const skills = new SkillLoader(this.config.skillsDir, this.config.maxSkillChars, enabledToolNames(this.config)).listInfo();
+      sendJson(res, 200, {
+        uptimeMs: Date.now() - this.startedAt,
+        replayCache: this.replayCache.size,
+        tasks: new TaskStore(this.config.taskPath).stats(),
+        taskSummary: formatTaskStats(new TaskStore(this.config.taskPath).stats()),
+        schedules: new ScheduleStore(this.config.schedulePath).stats(),
+        scheduleSummary: formatScheduleStats(new ScheduleStore(this.config.schedulePath).stats()),
+        memory: new LocalMemory(this.config.memoryPath).stats(),
+        memorySummary: formatMemoryStats(new LocalMemory(this.config.memoryPath).stats()),
+        sessions: { count: sessions.length, turns: sessions.reduce((sum, session) => sum + session.turns, 0) },
+        skills: { count: skills.length, eligible: skills.filter((skill) => skill.eligible).length }
+      });
+      return;
+    }
+    if (url.pathname === "/config") {
+      sendJson(res, 200, {
+        provider: this.config.provider,
+        model: this.config.model,
+        modelFallbacks: this.config.modelFallbacks,
+        workspace: this.config.workspace,
+        toolProfile: this.config.toolProfile,
+        gateway: { host: this.config.gatewayHost, port: this.config.gatewayPort, hookPath: this.config.gatewayHookPath, tokenEnv: this.config.gatewayTokenEnv }
+      });
+      return;
+    }
+    if (url.pathname === "/sessions") {
+      sendJson(res, 200, { object: "list", data: new SessionStore(this.config.sessionsDir).list() });
+      return;
+    }
+    if (url.pathname.startsWith("/sessions/")) {
+      const name = decodeURIComponent(url.pathname.slice("/sessions/".length));
+      sendJson(res, 200, { name, turns: new SessionStore(this.config.sessionsDir).read(name) });
+      return;
+    }
+    if (url.pathname === "/skills") {
+      sendJson(res, 200, { object: "list", data: new SkillLoader(this.config.skillsDir, this.config.maxSkillChars, enabledToolNames(this.config)).listInfo() });
+      return;
+    }
+    if (url.pathname.startsWith("/skills/")) {
+      const name = decodeURIComponent(url.pathname.slice("/skills/".length));
+      const skill = new SkillLoader(this.config.skillsDir, this.config.maxSkillChars, enabledToolNames(this.config)).info(name);
+      sendJson(res, skill ? 200 : 404, skill ?? { ok: false, error: "skill_not_found" });
+      return;
+    }
+    if (url.pathname === "/memory" || url.pathname === "/memory/search") {
+      const memory = new LocalMemory(this.config.memoryPath);
+      const limit = Number(url.searchParams.get("limit") ?? 50);
+      const query = url.searchParams.get("q") ?? url.searchParams.get("query") ?? "";
+      const data = query || url.pathname.endsWith("/search") ? memory.searchItems(query, limit).map((entry) => entry.item) : memory.items(limit);
+      sendJson(res, 200, { object: "list", data });
+      return;
+    }
+    sendJson(res, 404, { ok: false, error: "not_found" });
   }
 
   private authOk(req: http.IncomingMessage): boolean {
@@ -293,7 +380,18 @@ export function gatewayStatus(config: ButterclawConfig): string {
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key, x-butterclaw-token, x-openclaw-token");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.end(JSON.stringify(body));
+}
+
+function sendEmpty(res: http.ServerResponse, status: number): void {
+  res.statusCode = status;
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key, x-butterclaw-token, x-openclaw-token");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.end();
 }
 
 async function readJsonBody(req: http.IncomingMessage, maxBytes: number): Promise<unknown> {

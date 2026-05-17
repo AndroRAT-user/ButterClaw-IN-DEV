@@ -40,6 +40,14 @@ HTTP endpoints:
 - `GET /v1/models`
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
+- `GET /metrics`
+- `GET /config`
+- `GET /sessions`
+- `GET /sessions/<name>`
+- `GET /skills`
+- `GET /skills/<name>`
+- `GET /memory`
+- `GET /memory/search?q=<query>`
 - `GET /tasks`
 - `GET /tasks/<id>`
 
@@ -143,6 +151,23 @@ curl http://127.0.0.1:18789/tasks -H "Authorization: Bearer choose-a-local-token
 
 Records are intentionally compact: status, source, kind, timestamps, optional
 session/run ID, and a truncated output or error.
+
+`GET /tasks` accepts `status`, `kind`, `source`, and `limit` query filters.
+
+## State Inspection
+
+Authenticated local tools can inspect runtime state without scraping CLI output:
+
+```cmd
+curl http://127.0.0.1:18789/metrics -H "Authorization: Bearer choose-a-local-token"
+curl http://127.0.0.1:18789/config -H "Authorization: Bearer choose-a-local-token"
+curl http://127.0.0.1:18789/memory/search?q=release -H "Authorization: Bearer choose-a-local-token"
+curl http://127.0.0.1:18789/sessions -H "Authorization: Bearer choose-a-local-token"
+curl http://127.0.0.1:18789/skills -H "Authorization: Bearer choose-a-local-token"
+```
+
+The gateway also answers `OPTIONS` preflight requests with local CORS headers so
+loopback browser tools can call it during development.
 
 ## Safety
 

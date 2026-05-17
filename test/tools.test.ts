@@ -48,11 +48,34 @@ test("workspace map summarizes project shape", async () => {
   assert.match(result.output, /\.ts: 2/);
 });
 
+test("workspace utility tools inspect ranges, find files, stat paths, and hash files", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "butterclaw-tools-"));
+  fs.mkdirSync(path.join(root, "src"), { recursive: true });
+  fs.writeFileSync(path.join(root, "src", "index.ts"), "one\ntwo\nthree\n", "utf8");
+  const registry = buildDefaultRegistry(defaultConfig({ workspace: root, configDir: path.join(root, ".config") }));
+
+  const range = await registry.call("read_file_range", { path: "src/index.ts", start: 2, end: 3 });
+  assert.equal(range.ok, true);
+  assert.match(range.output, /2: two/);
+
+  const found = await registry.call("find_files", { pattern: "*.ts" });
+  assert.equal(found.ok, true);
+  assert.match(found.output, /src\/index\.ts/);
+
+  const stat = await registry.call("file_stat", { path: "src/index.ts" });
+  assert.equal(stat.ok, true);
+  assert.match(stat.output, /Type: file/);
+
+  const hash = await registry.call("file_hash", { path: "src/index.ts" });
+  assert.equal(hash.ok, true);
+  assert.match(hash.output, /sha256 src\/index\.ts/);
+});
+
 test("tool profiles restrict the registered tool surface", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "butterclaw-tools-"));
   const registry = buildDefaultRegistry(defaultConfig({ workspace: root, configDir: path.join(root, ".config"), toolProfile: "minimal" }));
 
-  assert.deepEqual(registry.names(), ["list_dir", "read_file", "search_files", "workspace_map"]);
+  assert.deepEqual(registry.names(), ["file_hash", "file_stat", "find_files", "list_dir", "read_file", "read_file_range", "search_files", "workspace_map"]);
   assert.equal((await registry.call("read_file", { path: "missing.txt" })).ok, false);
   assert.match((await registry.call("write_file", { path: "notes.txt", content: "nope" })).output, /Unknown tool/);
 });

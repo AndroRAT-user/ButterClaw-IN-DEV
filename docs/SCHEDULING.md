@@ -78,8 +78,13 @@ butterclaw schedule add --name repo-sweep --every 2h --agent debugger --message 
 
 ```cmd
 butterclaw schedule list
+butterclaw schedule due
+butterclaw schedule stats
 butterclaw schedule show sch_12345678
 butterclaw schedule runs sch_12345678
+butterclaw schedule disable sch_12345678
+butterclaw schedule enable sch_12345678
+butterclaw schedule export C:\path\to\schedule.json
 butterclaw schedule remove sch_12345678
 ```
 
@@ -88,6 +93,9 @@ Agent tools:
 - `schedule_list`
 - `schedule_add`
 - `schedule_remove`
+- `schedule_enable`
+- `schedule_disable`
+- `schedule_stats`
 
 Tool policy group:
 

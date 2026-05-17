@@ -11,6 +11,8 @@ import {
   runAgentRunCommand,
   runBackupCommand,
   runDoctorCommand,
+  runMemoryCommand,
+  runScheduleCommand,
   runSessionCommand,
   runSkillCommand,
   runSlashCommand,
@@ -139,6 +141,23 @@ test("skill metadata gates prompt loading by required tools", async () => {
   assert.doesNotMatch(system, /hidden-helper/);
 });
 
+test("skill command searches, inspects, copies, renames, validates, and deletes skills", () => {
+  const config = tempConfig();
+  const lines: string[] = [];
+
+  assert.equal(runSkillCommand(config, ["create", "Release Check", "--body", "Run tests before shipping."], (line) => lines.push(line)), 0);
+  lines.length = 0;
+  assert.equal(runSkillCommand(config, ["search", "shipping"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /release-check/);
+  lines.length = 0;
+  assert.equal(runSkillCommand(config, ["info", "release-check"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /eligible/);
+  assert.equal(runSkillCommand(config, ["copy", "release-check", "release-copy"], (line) => lines.push(line)), 0);
+  assert.equal(runSkillCommand(config, ["rename", "release-copy", "release-renamed"], (line) => lines.push(line)), 0);
+  assert.equal(runSkillCommand(config, ["validate"], (line) => lines.push(line)), 0);
+  assert.equal(runSkillCommand(config, ["delete", "release-renamed"], (line) => lines.push(line)), 0);
+});
+
 test("team command creates and lists agent teams", () => {
   const config = tempConfig();
   const lines: string[] = [];
@@ -220,6 +239,48 @@ test("session command prunes old turns", () => {
   assert.match(lines.join("\n"), /Pruned 1 old turn/);
 });
 
+test("session command supports search, stats, append, copy, rename, export, and all-session cleanup", () => {
+  const config = tempConfig();
+  const store = new SessionStore(config.sessionsDir);
+  const lines: string[] = [];
+  store.append("Build Log", "user", "ship the feature");
+  store.append("Build Log", "assistant", "ready to ship");
+
+  assert.equal(runSessionCommand(config, ["search", "ship"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /build-log/);
+  lines.length = 0;
+  assert.equal(runSessionCommand(config, ["stats"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /Turns: 2/);
+  assert.equal(runSessionCommand(config, ["append", "build-log", "--role", "user", "third turn"], (line) => lines.push(line)), 0);
+  assert.equal(runSessionCommand(config, ["copy", "build-log", "build-copy"], (line) => lines.push(line)), 0);
+  assert.equal(runSessionCommand(config, ["rename", "build-copy", "build-renamed"], (line) => lines.push(line)), 0);
+  const exportPath = path.join(config.workspace, "session.md");
+  assert.equal(runSessionCommand(config, ["export", "build-renamed", exportPath], (line) => lines.push(line)), 0);
+  assert.equal(fs.existsSync(exportPath), true);
+  assert.equal(runSessionCommand(config, ["clear", "--all"], (line) => lines.push(line)), 0);
+  assert.deepEqual(store.list(), []);
+});
+
+test("memory command supports local memory management", () => {
+  const config = tempConfig();
+  const lines: string[] = [];
+
+  assert.equal(runMemoryCommand(config, ["add", "--role", "user", "remember release checklist"], (line) => lines.push(line)), 0);
+  assert.equal(runMemoryCommand(config, ["add", "--role", "assistant", "tests pass"], (line) => lines.push(line)), 0);
+  lines.length = 0;
+  assert.equal(runMemoryCommand(config, ["search", "release"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /release checklist/);
+  lines.length = 0;
+  assert.equal(runMemoryCommand(config, ["stats"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /Items: 2/);
+  const exportPath = path.join(config.workspace, "memory.json");
+  assert.equal(runMemoryCommand(config, ["export", exportPath], (line) => lines.push(line)), 0);
+  assert.equal(fs.existsSync(exportPath), true);
+  assert.equal(runMemoryCommand(config, ["forget", "1"], (line) => lines.push(line)), 0);
+  assert.equal(runMemoryCommand(config, ["import", exportPath], (line) => lines.push(line)), 0);
+  assert.equal(runMemoryCommand(config, ["prune", "--keep", "1"], (line) => lines.push(line)), 0);
+});
+
 test("doctor command reports local runtime health", async () => {
   const config = tempConfig();
   createLocalFiles(config);
@@ -296,6 +357,54 @@ test("task command lists and shows background task records", () => {
   lines.length = 0;
   assert.equal(runTaskCommand(config, ["show", "task_demo"], (line) => lines.push(line)), 0);
   assert.match(lines.join("\n"), /demo task/);
+});
+
+test("task command filters, cancels, exports, prunes, clears, and reports stats", () => {
+  const config = tempConfig();
+  createLocalFiles(config);
+  fs.writeFileSync(
+    config.taskPath,
+    JSON.stringify({
+      version: 1,
+      tasks: [
+        { id: "task_one", kind: "agent-hook", source: "gateway", status: "running", summary: "one", createdAt: "2026-05-16T00:00:00.000Z", updatedAt: "2026-05-16T00:00:00.000Z" },
+        { id: "task_two", kind: "schedule", source: "cli", status: "succeeded", summary: "two", createdAt: "2026-05-16T00:00:01.000Z", updatedAt: "2026-05-16T00:00:01.000Z" }
+      ]
+    }),
+    "utf8"
+  );
+  const lines: string[] = [];
+
+  assert.equal(runTaskCommand(config, ["list", "--source", "cli", "--limit", "1"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /task_two/);
+  assert.doesNotMatch(lines.join("\n"), /task_one/);
+  assert.equal(runTaskCommand(config, ["cancel", "task_one", "stop"], (line) => lines.push(line)), 0);
+  lines.length = 0;
+  assert.equal(runTaskCommand(config, ["stats"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /cancelled/);
+  const exportPath = path.join(config.workspace, "tasks.json");
+  assert.equal(runTaskCommand(config, ["export", exportPath], (line) => lines.push(line)), 0);
+  assert.equal(fs.existsSync(exportPath), true);
+  assert.equal(runTaskCommand(config, ["prune", "--keep", "1"], (line) => lines.push(line)), 0);
+  assert.equal(runTaskCommand(config, ["clear", "--status", "succeeded"], (line) => lines.push(line)), 0);
+});
+
+test("schedule command supports pause, resume, due, stats, and export", async () => {
+  const config = tempConfig();
+  createLocalFiles(config);
+  const lines: string[] = [];
+
+  assert.equal(await runScheduleCommand(config, ["add", "--name", "quick", "--at", "now", "--message", "hello"], (line) => lines.push(line)), 0);
+  assert.equal(await runScheduleCommand(config, ["due"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /quick/);
+  assert.equal(await runScheduleCommand(config, ["disable", "quick"], (line) => lines.push(line)), 0);
+  assert.equal(await runScheduleCommand(config, ["enable", "quick"], (line) => lines.push(line)), 0);
+  lines.length = 0;
+  assert.equal(await runScheduleCommand(config, ["stats"], (line) => lines.push(line)), 0);
+  assert.match(lines.join("\n"), /Jobs: 1/);
+  const exportPath = path.join(config.workspace, "schedule.json");
+  assert.equal(await runScheduleCommand(config, ["export", exportPath], (line) => lines.push(line)), 0);
+  assert.equal(fs.existsSync(exportPath), true);
 });
 
 test("active agent profile is included in the system prompt", async () => {

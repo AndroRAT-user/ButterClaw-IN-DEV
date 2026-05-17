@@ -25,7 +25,13 @@ Common task kinds:
 butterclaw tasks list
 butterclaw tasks list --status succeeded
 butterclaw tasks list --kind agent-hook
+butterclaw tasks list --source gateway --limit 20
 butterclaw tasks show task_12345678
+butterclaw tasks cancel task_12345678 "operator cancelled"
+butterclaw tasks stats
+butterclaw tasks clear --status succeeded
+butterclaw tasks prune --keep 100
+butterclaw tasks export C:\path\to\tasks.json
 ```
 
 `show` also accepts a stored run ID when the task has one.
@@ -40,6 +46,8 @@ Agent tools:
 
 - `task_list`
 - `task_show`
+- `task_cancel`
+- `task_stats`
 
 Task statuses:
 
